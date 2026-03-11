@@ -1,0 +1,4 @@
+playwright==1.42.0
+playwright-stealth==1.0.6
+openai==1.14.0
+python-dotenv==1.0.1
