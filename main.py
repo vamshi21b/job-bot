@@ -39,16 +39,27 @@ def apply_on_dice(page):
                 job_urls.append(href)
 
         # 2. Visit each job page directly in the exact same tab
+        # 2. Visit each job page directly in the exact same tab
         for url in job_urls:
             print(f"Navigating directly to job page...")
             page.goto(url)
             
-            # Wait specifically for the description text box
-            page.wait_for_selector('#jobdescSec, .job-description, [data-cy="job-description"]', timeout=15000)
+            # Wait for the page to stop loading
+            page.wait_for_load_state('networkidle', timeout=15000)
+            time.sleep(2) 
             
-            description_text = page.locator('#jobdescSec, .job-description, [data-cy="job-description"]').first.inner_text()
+            # 3. THE NEW EXTRACTION LOGIC
+            try:
+                # Try to grab the clean, formatted description first
+                description_text = page.locator('#jobdescSec, .job-description, [data-cy="job-description"]').first.inner_text(timeout=5000)
+            except:
+                print("Standard description tags not found. Brute-forcing page text...")
+                # If that fails, just rip all the text off the entire webpage
+                description_text = page.locator('body').inner_text()
+                
             print("Extracted description. Sending to OpenAI for evaluation...")
             
+            # Pass to your OpenAI brain
             is_match = evaluate_job(description_text)
             
             if is_match:
