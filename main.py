@@ -37,6 +37,8 @@ def apply_on_dice(page):
             print("Evaluated Dice job.")
     except Exception as e:
         print(page.title())
+        print(f"Page Text: {page.locator('body').inner_text()[:1000]}")      
+        print(f"Exact error: {e}")
         print(f"Dice scraping encountered an error or no jobs found: {e}")
 
 def apply_on_indeed(page):
@@ -68,6 +70,8 @@ def apply_on_indeed(page):
                 print("Evaluated Indeed job.")
     except Exception as e:
         print(page.title())
+        print(f"Page Text: {page.locator('body').inner_text()[:1000]}")      
+        print(f"Exact error: {e}")
         print(f"Indeed scraping encountered an error: {e}")
 
 def run_scraper():
@@ -84,7 +88,7 @@ def run_scraper():
         apply_on_dice(page)
         
         # Run Indeed second
-        apply_on_indeed(page)
+        # apply_on_indeed(page)
         
         browser.close()
         print("--- Daily Job Hunt Complete ---")
