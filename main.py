@@ -16,39 +16,43 @@ def apply_on_dice(page):
     page.goto('https://www.dice.com/jobs?q=Technology+Architect&location=Frisco,+TX&filters.easyApply=true')
     
     try:
-        # 1. Wait for the page's background network requests to stop downloading
         page.wait_for_load_state('networkidle', timeout=30000)
-        time.sleep(3) # Give the browser an extra 3 seconds to visually paint the screen
+        time.sleep(3) 
         
-        # 2. Look for the job links. 
         job_links = page.locator('a.card-title-link').all()
-        
         if len(job_links) == 0:
             print("Standard link class not found. Trying fallback URL selector...")
-            # Fallback: Grab any link on the page that points to a job detail page
             job_links = page.locator('a[href*="/job-detail/"]').all()
             
         print(f"Found {len(job_links)} Easy Apply jobs on Dice.")
 
-        # Let's just evaluate the first 5 jobs for this test run so it doesn't take an hour
-        for link in job_links[:5]:
-            link.click()
+        # 1. NEW LOGIC: Extract the actual URLs first to avoid "New Tab" popups
+        job_urls = []
+        for link in job_links[:5]: # Still limiting to 5 for testing
+            href = link.get_attribute('href')
+            if href:
+                # Handle relative URLs just in case Dice uses them
+                if href.startswith('/'):
+                    href = f"https://www.dice.com{href}"
+                
+                # Some Dice URLs have tracking parameters, but the base URL works perfectly
+                job_urls.append(href)
+
+        # 2. Visit each job page directly in the exact same tab
+        for url in job_urls:
+            print(f"Navigating directly to job page...")
+            page.goto(url)
             
-            # Wait for the right-side panel to load the job description
-            page.wait_for_load_state('networkidle')
-            time.sleep(2) 
+            # Wait specifically for the description text box
+            page.wait_for_selector('#jobdescSec, .job-description, [data-cy="job-description"]', timeout=15000)
             
-            # 3. Extract description using multiple possible CSS locators
             description_text = page.locator('#jobdescSec, .job-description, [data-cy="job-description"]').first.inner_text()
-            print(f"Extracted description. Sending to OpenAI for evaluation...")
+            print("Extracted description. Sending to OpenAI for evaluation...")
             
-            # Pass to your OpenAI brain
             is_match = evaluate_job(description_text)
             
             if is_match:
                 print("OpenAI approved! Applying...")
-                # We will leave the click actions commented out just for this one test 
-                # to make sure it grades correctly without accidentally applying to garbage.
                 # page.locator('button.btn-primary:has-text("Apply Now")').click()
                 # page.locator('input[name="firstName"]').fill(CANDIDATE_NAME.split()[0])
                 # page.locator('input[name="lastName"]').fill(CANDIDATE_NAME.split()[-1])
