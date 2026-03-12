@@ -16,28 +16,42 @@ def apply_on_dice(page):
     page.goto('https://www.dice.com/jobs?q=Technology+Architect&location=Frisco,+TX&filters.easyApply=true')
     
     try:
-        page.wait_for_selector('dhi-search-card', timeout=60000)
-        jobs = page.locator('dhi-search-card').all()
-        print(f"Found {len(jobs)} Easy Apply jobs on Dice.")
+        # 1. Wait for the filter sidebar to prove the page loaded
+        page.wait_for_selector('text="How far are you willing to commute"', timeout=30000)
+        
+        # 2. Target the job title links directly instead of the old card wrapper
+        page.wait_for_selector('a.card-title-link', timeout=15000)
+        job_links = page.locator('a.card-title-link').all()
+        print(f"Found {len(job_links)} Easy Apply jobs on Dice.")
 
-        for job in jobs:
-            job.locator('a.card-title-link').click()
+        for link in job_links:
+            # Click the link
+            link.click()
             page.wait_for_load_state('networkidle')
-            time.sleep(2) # Give the page a second to settle
+            time.sleep(2) 
             
-            # TODO: Extract description, pass to evaluate_job()
-            # If evaluate_job() == True:
-            #     page.locator('button.btn-primary:has-text("Apply Now")').click()
-            #     page.locator('input[name="firstName"]').fill(CANDIDATE_NAME.split()[0])
-            #     page.locator('input[name="lastName"]').fill(CANDIDATE_NAME.split()[-1])
-            #     page.locator('input[name="email"]').fill(CANDIDATE_EMAIL)
-            #     page.locator('input[type="file"]').set_input_files(RESUME_PATH)
-            #     page.locator('button:has-text("Submit")').click()
+            # 3. Extract description using multiple possible locators just to be safe
+            description_text = page.locator('#jobdescSec, .job-description, [data-cy="job-description"]').first.inner_text()
+            print(f"Extracted description. Sending to OpenAI...")
             
+            # Pass to OpenAI
+            is_match = evaluate_job(description_text)
+            
+            if is_match:
+                print("OpenAI approved! Applying...")
+                page.locator('button.btn-primary:has-text("Apply Now")').click()
+                page.locator('input[name="firstName"]').fill(CANDIDATE_NAME.split()[0])
+                page.locator('input[name="lastName"]').fill(CANDIDATE_NAME.split()[-1])
+                page.locator('input[name="email"]').fill(CANDIDATE_EMAIL)
+                page.locator('input[type="file"]').set_input_files(RESUME_PATH)
+                page.locator('button:has-text("Submit")').click()
+            else:
+                print("OpenAI rejected this role. Skipping.")
+                
             print("Evaluated Dice job.")
+            
     except Exception as e:
-        print(page.title())
-        print(f"Page Text: {page.locator('body').inner_text()[:1000]}")      
+        print(f"Dice timeout. The page title is: '{page.title()}'")
         print(f"Exact error: {e}")
         print(f"Dice scraping encountered an error or no jobs found: {e}")
 
