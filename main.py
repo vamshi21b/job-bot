@@ -1,136 +1,167 @@
 import os
 import time
+import uuid
 from playwright.sync_api import sync_playwright
 from playwright_stealth import stealth_sync
-from brain import evaluate_job  # Your OpenAI logic
+from azure.data.tables import TableClient
+from brain import evaluate_job
 
-# 1. Pull secure details from Environment Variables
+# 1. Pull secure details from Azure Environment Variables
+# We set fallbacks here just in case the env vars don't load perfectly
 CANDIDATE_NAME = os.getenv("CANDIDATE_NAME", "Vamshi Krishna Boddu")
-CANDIDATE_EMAIL = os.getenv("CANDIDATE_EMAIL")
-LINKEDIN_URL = os.getenv("LINKEDIN_URL")
-LOCATION = os.getenv("CANDIDATE_LOCATION", "Frisco, Texas")
+CANDIDATE_EMAIL = os.getenv("CANDIDATE_EMAIL", "vamshikrishna852@gmail.com")
+CANDIDATE_PHONE = os.getenv("CANDIDATE_PHONE", "989-954-2212")
+STORAGE_CONN_STR = os.getenv("STORAGE_CONN_STR")
 RESUME_PATH = "/app/resume.pdf"
+
+# 2. Initialize Azure Database Connection
+table_client = None
+if STORAGE_CONN_STR:
+    try:
+        table_client = TableClient.from_connection_string(conn_str=STORAGE_CONN_STR, table_name="AppliedJobs")
+        print("Successfully connected to Azure Table Storage.")
+    except Exception as e:
+        print(f"Warning: Could not connect to Azure Table Storage. Error: {e}")
+else:
+    print("Warning: STORAGE_CONN_STR environment variable is missing.")
+
+def log_application(url, title, description):
+    """Parses the page title and saves the record to Azure Table Storage"""
+    if not table_client:
+        return
+        
+    try:
+        # Dice titles usually format as "Role - Company - Location | Dice.com"
+        parts = title.replace('| Dice.com', '').split(' - ')
+        job_role = parts[0].strip() if len(parts) > 0 else "Unknown Role"
+        company = parts[1].strip() if len(parts) > 1 else "Unknown Company"
+        location = parts[2].strip() if len(parts) > 2 else "Unknown Location"
+        
+        # Max Azure Table string length is 32k, so we truncate the description
+        safe_desc = description[:30000] if description else "No description extracted"
+
+        entity = {
+            "PartitionKey": "Dice",
+            "RowKey": str(uuid.uuid4()), # Generates a unique ID for the log entry
+            "JobUrl": url,
+            "JobRole": job_role,
+            "Company": company,
+            "Location": location,
+            "Description": safe_desc,
+            "DateApplied": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        table_client.create_entity(entity=entity)
+        print(f"--> Successfully logged {job_role} at {company} to Azure DB.")
+    except Exception as e:
+        print(f"Failed to log to database: {e}")
 
 def apply_on_dice(page):
     print("--- Starting Dice Job Search ---")
-    page.goto('https://www.dice.com/jobs?q=Technology+Architect&location=Frisco,+TX&filters.easyApply=true')
     
-    try:
-        page.wait_for_load_state('networkidle', timeout=30000)
-        time.sleep(3) 
+    # 3. The Search Queues: Dallas (On-Site/Hybrid) and Remote (Anywhere)
+    search_urls = [
+        'https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&location=Dallas,+TX&radius=30&radiusUnit=mi&filters.easyApply=true&filters.workplaceTypes=On-Site%7CHybrid',
+        'https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&filters.easyApply=true&filters.workplaceTypes=Remote'
+    ]
+
+    for search_url in search_urls:
+        print(f"\n--- Scraping Queue: {search_url} ---")
+        page.goto(search_url)
         
-        job_links = page.locator('a.card-title-link').all()
-        if len(job_links) == 0:
-            print("Standard link class not found. Trying fallback URL selector...")
-            job_links = page.locator('a[href*="/job-detail/"]').all()
+        try:
+            # Wait for the search results to finish loading
+            page.wait_for_load_state('networkidle', timeout=30000)
+            time.sleep(3) 
             
-        print(f"Found {len(job_links)} Easy Apply jobs on Dice.")
+            # Extract job links
+            job_links = page.locator('a.card-title-link').all()
+            if len(job_links) == 0:
+                print("Standard link class not found. Trying fallback URL selector...")
+                job_links = page.locator('a[href*="/job-detail/"]').all()
+                
+            print(f"Found {len(job_links)} jobs in this queue.")
 
-        # 1. NEW LOGIC: Extract the actual URLs first to avoid "New Tab" popups
-        job_urls = []
-        for link in job_links[:5]: # Still limiting to 5 for testing
-            href = link.get_attribute('href')
-            if href:
-                # Handle relative URLs just in case Dice uses them
-                if href.startswith('/'):
-                    href = f"https://www.dice.com{href}"
-                
-                # Some Dice URLs have tracking parameters, but the base URL works perfectly
-                job_urls.append(href)
+            # Grab all the raw URLs
+            job_urls = []
+            for link in job_links:
+                href = link.get_attribute('href')
+                if href:
+                    if href.startswith('/'): 
+                        href = f"https://www.dice.com{href}"
+                    job_urls.append(href)
 
-        # 2. Visit each job page directly in the exact same tab
-        # 2. Visit each job page directly in the exact same tab
-        for url in job_urls:
-            print(f"Navigating directly to job page...")
-            page.goto(url)
-            
-            # Wait for the page to stop loading
-            page.wait_for_load_state('networkidle', timeout=15000)
-            time.sleep(2) 
-            
-            # 3. THE NEW EXTRACTION LOGIC
-            try:
-                # Try to grab the clean, formatted description first
-                description_text = page.locator('#jobdescSec, .job-description, [data-cy="job-description"]').first.inner_text(timeout=5000)
-            except:
-                print("Standard description tags not found. Brute-forcing page text...")
-                # If that fails, just rip all the text off the entire webpage
-                description_text = page.locator('body').inner_text()
+            # 4. Visit each job directly and apply
+            for url in job_urls:
+                print(f"\nNavigating to job: {url}")
+                page.goto(url)
                 
-            print("Extracted description. Sending to OpenAI for evaluation...")
-            
-            # Pass to your OpenAI brain
-            is_match = evaluate_job(description_text)
-            
-            if is_match:
-                print("OpenAI approved! Applying...")
-                # page.locator('button.btn-primary:has-text("Apply Now")').click()
-                # page.locator('input[name="firstName"]').fill(CANDIDATE_NAME.split()[0])
-                # page.locator('input[name="lastName"]').fill(CANDIDATE_NAME.split()[-1])
-                # page.locator('input[name="email"]').fill(CANDIDATE_EMAIL)
-                # page.locator('input[type="file"]').set_input_files(RESUME_PATH)
-                # page.locator('button:has-text("Submit")').click()
-            else:
-                print("OpenAI rejected this role. Skipping.")
+                try:
+                    page.wait_for_load_state('networkidle', timeout=15000)
+                    time.sleep(2) 
+                    
+                    # Extract the text (Standard vs Brute-force)
+                    try:
+                        description_text = page.locator('#jobdescSec, .job-description, [data-cy="job-description"]').first.inner_text(timeout=5000)
+                    except:
+                        print("Standard description tags not found. Brute-forcing page text...")
+                        description_text = page.locator('body').inner_text()
+                        
+                    print("Extracted description. Sending to OpenAI for evaluation...")
+                    
+                    # The AI Brain makes the decision
+                    is_match = evaluate_job(description_text)
+                    
+                    if is_match:
+                        print("OpenAI approved! Applying...")
+                        
+                        # --- The Automated Application Process ---
+                        page.locator('button.btn-primary:has-text("Apply Now")').click()
+                        
+                        # Split your name for the First/Last fields
+                        name_parts = CANDIDATE_NAME.split()
+                        first_name = name_parts[0]
+                        last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+                        
+                        page.locator('input[name="firstName"]').fill(first_name)
+                        page.locator('input[name="lastName"]').fill(last_name)
+                        page.locator('input[name="email"]').fill(CANDIDATE_EMAIL)
+                        
+                        # Fill the phone number if Dice asks for it
+                        if page.locator('input[name="phone"]').is_visible():
+                            page.locator('input[name="phone"]').fill(CANDIDATE_PHONE)
+                            
+                        # Upload Resume
+                        page.locator('input[type="file"]').set_input_files(RESUME_PATH)
+                        
+                        # Submit Application
+                        page.locator('button:has-text("Submit")').click()
+                        print("Application submitted successfully!")
+                        
+                        # Log it to the database
+                        log_application(url, page.title(), description_text)
+                        
+                    else:
+                        print("OpenAI rejected this role. Skipping.")
                 
-            print("--- Moving to next job ---")
-            
-    except Exception as e:
-        print(f"Dice timeout. The page title is: '{page.title()}'")
-        print(f"Exact error: {e}")
-        print(f"Dice scraping encountered an error or no jobs found: {e}")
-
-def apply_on_indeed(page):
-    print("--- Starting Indeed Job Search ---")
-    # Using Frisco, TX specifically to narrow down the search
-    page.goto('https://www.indeed.com/jobs?q=DevOps+Engineer&l=Frisco,+TX')
-    
-    try:
-        page.wait_for_selector('td.resultContent', timeout=60000)
-        job_cards = page.locator('td.resultContent').all()
-        print(f"Found {len(job_cards)} total jobs on Indeed page.")
-
-        for card in job_cards:
-            # ONLY click jobs that have the "Easily apply" tag
-            if card.locator('span:has-text("Easily apply")').is_visible():
-                card.click()
-                page.wait_for_selector('#jobsearch-ViewjobPaneWrapper')
-                time.sleep(2)
-                
-                # TODO: Extract description from the right pane, pass to evaluate_job()
-                # If evaluate_job() == True:
-                #     page.locator('#jobsearch-ViewjobPaneWrapper').get_by_role("button", name="Apply now").click()
-                #     page.get_by_label("First name").fill(CANDIDATE_NAME.split()[0])
-                #     page.get_by_label("Last name").fill(CANDIDATE_NAME.split()[-1])
-                #     page.get_by_label("Email").fill(CANDIDATE_EMAIL)
-                #     page.locator('input[type="file"]').set_input_files(RESUME_PATH)
-                #     page.get_by_role("button", name="Continue").click()
-                
-                print("Evaluated Indeed job.")
-    except Exception as e:
-        print(page.title())
-        print(f"Page Text: {page.locator('body').inner_text()[:1000]}")      
-        print(f"Exact error: {e}")
-        print(f"Indeed scraping encountered an error: {e}")
+                except Exception as inner_e:
+                    print(f"Failed to process individual job. Skipping. Error: {inner_e}")
+                    
+        except Exception as e:
+            print(f"Queue timeout/error. Title: '{page.title()}' | Error: {e}")
 
 def run_scraper():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # Using a context helps isolate cookies and cache between runs
         context = browser.new_context()
         page = context.new_page()
         
-        # Apply stealth tactics to bypass Cloudflare/DataDome
+        # Apply stealth to bypass bot protection
         stealth_sync(page) 
         
-        # Run Dice first
         apply_on_dice(page)
         
-        # Run Indeed second
-        # apply_on_indeed(page)
-        
         browser.close()
-        print("--- Daily Job Hunt Complete ---")
+        print("\n--- Daily Job Hunt Complete ---")
 
 if __name__ == "__main__":
     run_scraper()
