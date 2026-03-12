@@ -112,34 +112,51 @@ def apply_on_dice(page):
                     is_match = evaluate_job(description_text)
                     
                     if is_match:
-                        print("OpenAI approved! Applying...")
+                        print("OpenAI approved! Initiating application sequence...")
                         
-                        # --- The Automated Application Process ---
-                        page.locator('button.btn-primary:has-text("Apply Now")').click()
-                        
-                        # Split your name for the First/Last fields
-                        name_parts = CANDIDATE_NAME.split()
-                        first_name = name_parts[0]
-                        last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
-                        
-                        page.locator('input[name="firstName"]').fill(first_name)
-                        page.locator('input[name="lastName"]').fill(last_name)
-                        page.locator('input[name="email"]').fill(CANDIDATE_EMAIL)
-                        
-                        # Fill the phone number if Dice asks for it
-                        if page.locator('input[name="phone"]').is_visible():
-                            page.locator('input[name="phone"]').fill(CANDIDATE_PHONE)
+                        try:
+                            # 1. Click the Apply Button (using broader text matches)
+                            print("-> Looking for the Apply button...")
+                            apply_button = page.locator('button:has-text("Apply"), a:has-text("Apply")').first
+                            apply_button.click(timeout=10000)
                             
-                        # Upload Resume
-                        page.locator('input[type="file"]').set_input_files(RESUME_PATH)
-                        
-                        # Submit Application
-                        page.locator('button:has-text("Submit")').click()
-                        print("Application submitted successfully!")
-                        
-                        # Log it to the database
-                        log_application(url, page.title(), description_text)
-                        
+                            # Give the modal/popup a moment to render
+                            time.sleep(3)
+                            
+                            # 2. Fill First and Last Name
+                            print("-> Filling candidate name...")
+                            name_parts = CANDIDATE_NAME.split()
+                            first_name = name_parts[0]
+                            last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+                            
+                            page.locator('input[name="firstName"], input[name="first-name"]').fill(first_name, timeout=5000)
+                            page.locator('input[name="lastName"], input[name="last-name"]').fill(last_name, timeout=5000)
+                            
+                            # 3. Fill Email
+                            print("-> Filling email...")
+                            page.locator('input[name="email"], input[type="email"]').fill(CANDIDATE_EMAIL, timeout=5000)
+                            
+                            # 4. Fill Phone (if it exists)
+                            if page.locator('input[name="phone"], input[type="tel"]').is_visible():
+                                print("-> Filling phone number...")
+                                page.locator('input[name="phone"], input[type="tel"]').fill(CANDIDATE_PHONE)
+                                
+                            # 5. Upload Resume
+                            print("-> Uploading resume...")
+                            page.locator('input[type="file"]').set_input_files(RESUME_PATH, timeout=5000)
+                            
+                            # 6. Submit Application
+                            print("-> Submitting application...")
+                            page.locator('button:has-text("Submit"), button:has-text("Next")').first.click(timeout=5000)
+                            print("✅ Application submitted successfully!")
+                            
+                            # Log it to your Azure database
+                            log_application(url, page.title(), description_text)
+                            
+                        except Exception as apply_err:
+                            print(f"❌ Application step failed! The bot got stuck on the form.")
+                            print(f"Exact Form Error: {apply_err}")
+                            
                     else:
                         print("OpenAI rejected this role. Skipping.")
                 

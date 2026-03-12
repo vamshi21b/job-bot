@@ -1,34 +1,45 @@
 import os
 from openai import OpenAI
-from dotenv import load_dotenv
 
-load_dotenv()
+# Initialize the client securely
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def evaluate_job(job_description):
-    """Evaluates the JD against your DevOps profile using the mini model."""
+def evaluate_job(description_text):
+    """
+    Passes the job description to OpenAI. 
+    Returns True if it's a match, False if we should skip it.
+    """
     
     system_prompt = """
-    You are an AI assistant helping a candidate apply for DevOps roles. 
-    The candidate has strong experience in Azure, Python, and building automated 
-    network compliance function apps. 
+    You are an expert technical recruiter evaluating job descriptions for a Senior DevOps Engineer and Technology Architect.
     
-    Analyze the provided job description. 
-    1. Return 'MATCH' if the role is a good fit for an Azure/Python DevOps Engineer.
-    2. Return 'SKIP' if it heavily requires unrelated skills.
-    3. If 'MATCH', provide a 2-sentence cover letter snippet highlighting their 
-       Python network compliance automation and Azure deployment experience.
-       
-    Format: [MATCH/SKIP] | [Snippet]
+    Your candidate's core stack is: Azure, AWS, Site Reliability Engineering (SRE), Terraform, and Ansible.
+    
+    Read the provided job description and reply with EXACTLY 'YES' or 'NO' based on these strict rules:
+    
+    1. MATCHING TECH: The role MUST heavily feature either Azure or AWS, alongside IaC tools like Terraform or Ansible.
+    2. SENIORITY: Reject junior, entry-level, or basic sysadmin roles. It must be Architect, Lead, or Senior DevOps level.
+    3. EXCLUSIONS: Reply 'NO' if the job requires heavy software development (e.g., full-stack Java/C# coding) rather than infrastructure and pipeline architecture.
+    4. CLEARANCES: Reply 'NO' if the job explicitly requires an active Top Secret or DoD security clearance.
+    
+    If the job meets the criteria, reply YES. Otherwise, reply NO. Do not explain your reasoning.
     """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": job_description}
-        ],
-        temperature=0.2
-    )
-    
-    return response.choices[0].message.content
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo", # or gpt-4o-mini for better reasoning at a low cost
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Job Description:\n{description_text}"}
+            ],
+            temperature=0.1, # Keep it deterministic and strict
+            max_tokens=5
+        )
+        
+        # Clean up the response and check if the AI said YES
+        decision = response.choices[0].message.content.strip().upper()
+        return "YES" in decision
+        
+    except Exception as e:
+        print(f"OpenAI API Error: {e}")
+        return False
