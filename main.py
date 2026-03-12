@@ -16,7 +16,7 @@ def apply_on_dice(page):
     page.goto('https://www.dice.com/jobs?q=Technology+Architect&location=Frisco,+TX&filters.easyApply=true')
     
     try:
-        page.wait_for_selector('dhi-search-card', timeout=15000)
+        page.wait_for_selector('dhi-search-card', timeout=60000)
         jobs = page.locator('dhi-search-card').all()
         print(f"Found {len(jobs)} Easy Apply jobs on Dice.")
 
@@ -36,6 +36,7 @@ def apply_on_dice(page):
             
             print("Evaluated Dice job.")
     except Exception as e:
+        print(page.title())
         print(f"Dice scraping encountered an error or no jobs found: {e}")
 
 def apply_on_indeed(page):
@@ -44,7 +45,7 @@ def apply_on_indeed(page):
     page.goto('https://www.indeed.com/jobs?q=DevOps+Engineer&l=Frisco,+TX')
     
     try:
-        page.wait_for_selector('td.resultContent', timeout=15000)
+        page.wait_for_selector('td.resultContent', timeout=60000)
         job_cards = page.locator('td.resultContent').all()
         print(f"Found {len(job_cards)} total jobs on Indeed page.")
 
@@ -66,6 +67,7 @@ def apply_on_indeed(page):
                 
                 print("Evaluated Indeed job.")
     except Exception as e:
+        print(page.title())
         print(f"Indeed scraping encountered an error: {e}")
 
 def run_scraper():
