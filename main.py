@@ -96,10 +96,11 @@ def apply_on_dice(page):
                 page.goto(url)
                 
                 try:
-                    page.wait_for_load_state('networkidle', timeout=15000)
+                    # FIX 1: Bypass the infinite tracker trap by using domcontentloaded instead of networkidle
+                    page.wait_for_load_state('domcontentloaded', timeout=15000)
                     time.sleep(2) 
                     
-                    # Extract the text (Standard vs Brute-force)
+                    # Extract the text
                     try:
                         description_text = page.locator('#jobdescSec, .job-description, [data-cy="job-description"]').first.inner_text(timeout=5000)
                     except:
@@ -108,20 +109,19 @@ def apply_on_dice(page):
                         
                     print("Extracted description. Sending to OpenAI for evaluation...")
                     
-                    # The AI Brain makes the decision
                     is_match = evaluate_job(description_text)
                     
                     if is_match:
                         print("OpenAI approved! Initiating application sequence...")
                         
                         try:
-                            # 1. Click the Apply Button (using broader text matches)
+                            # 1. Click the Apply Button
                             print("-> Looking for the Apply button...")
                             apply_button = page.locator('button:has-text("Apply"), a:has-text("Apply")').first
                             apply_button.click(timeout=10000)
                             
-                            # Give the modal/popup a moment to render
-                            time.sleep(3)
+                            # Give the modal/popup a generous moment to render
+                            time.sleep(4)
                             
                             # 2. Fill First and Last Name
                             print("-> Filling candidate name...")
@@ -129,33 +129,42 @@ def apply_on_dice(page):
                             first_name = name_parts[0]
                             last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
                             
-                            page.locator('input[name="firstName"], input[name="first-name"]').fill(first_name, timeout=5000)
-                            page.locator('input[name="lastName"], input[name="last-name"]').fill(last_name, timeout=5000)
+                            # Broadened selectors to catch shadow DOMs or weird IDs
+                            page.locator('input[name*="first"], input[placeholder*="First"]').first.fill(first_name, timeout=5000)
+                            page.locator('input[name*="last"], input[placeholder*="Last"]').first.fill(last_name, timeout=5000)
                             
                             # 3. Fill Email
                             print("-> Filling email...")
-                            page.locator('input[name="email"], input[type="email"]').fill(CANDIDATE_EMAIL, timeout=5000)
+                            page.locator('input[type="email"], input[name*="email"]').first.fill(CANDIDATE_EMAIL, timeout=5000)
                             
-                            # 4. Fill Phone (if it exists)
-                            if page.locator('input[name="phone"], input[type="tel"]').is_visible():
+                            # 4. Fill Phone
+                            if page.locator('input[type="tel"], input[name*="phone"]').first.is_visible():
                                 print("-> Filling phone number...")
-                                page.locator('input[name="phone"], input[type="tel"]').fill(CANDIDATE_PHONE)
+                                page.locator('input[type="tel"], input[name*="phone"]').first.fill(CANDIDATE_PHONE)
                                 
                             # 5. Upload Resume
                             print("-> Uploading resume...")
-                            page.locator('input[type="file"]').set_input_files(RESUME_PATH, timeout=5000)
+                            page.locator('input[type="file"]').first.set_input_files(RESUME_PATH, timeout=5000)
                             
                             # 6. Submit Application
                             print("-> Submitting application...")
-                            page.locator('button:has-text("Submit"), button:has-text("Next")').first.click(timeout=5000)
+                            page.locator('button:has-text("Submit"), button:has-text("Next"), button:has-text("Send")').first.click(timeout=5000)
                             print("✅ Application submitted successfully!")
                             
-                            # Log it to your Azure database
                             log_application(url, page.title(), description_text)
                             
                         except Exception as apply_err:
                             print(f"❌ Application step failed! The bot got stuck on the form.")
                             print(f"Exact Form Error: {apply_err}")
+                            
+                            # FIX 2: Bot Vision - Dump the screen text so we can see what blocked it
+                            print("\n--- 🤖 WHAT THE BOT SEES RIGHT NOW ---")
+                            print(f"Current URL: {page.url}")
+                            try:
+                                visible_text = page.locator("body").inner_text()
+                                print(f"Screen Text:\n{visible_text[:800]}...\n--------------------------------------")
+                            except:
+                                print("Could not scrape screen text.")
                             
                     else:
                         print("OpenAI rejected this role. Skipping.")
