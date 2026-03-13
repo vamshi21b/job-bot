@@ -194,10 +194,20 @@ def apply_on_dice(page):
                                 except:
                                     break
 
-                            # 5. Submit Application
+                            # 5. Submit Application (Upgraded to catch "Apply" and use JS injection)
                             print("-> Submitting application...")
-                            submit_btn = page.locator('button:has-text("Submit Application"):visible, button:has-text("Submit"):visible, button:has-text("Finish"):visible, button:has-text("Send"):visible').first
-                            submit_btn.click(timeout=5000, force=True)
+                            try:
+                                submit_btn = page.locator('button:has-text("Submit"):visible, button:has-text("Finish"):visible, button:has-text("Send"):visible, button.btn-primary:has-text("Apply"):visible').first
+                                submit_btn.click(timeout=5000, force=True)
+                            except:
+                                print("-> Standard submit failed. Forcing submission via Javascript...")
+                                page.evaluate('''() => {
+                                    const buttons = Array.from(document.querySelectorAll('button.btn-primary'));
+                                    const finalBtn = buttons.find(b => b.innerText.includes('Submit') || b.innerText.includes('Apply') || b.innerText.includes('Finish'));
+                                    if (finalBtn) finalBtn.click();
+                                }''')
+                                
+                            time.sleep(3) # Give the database a moment to register the application
                             print("✅ Application submitted successfully!")
                             
                             log_application(url, job_role, company, description_text, "Approved & Applied")
