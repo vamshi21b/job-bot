@@ -12,7 +12,7 @@ CANDIDATE_EMAIL = os.getenv("CANDIDATE_EMAIL", "vamshikrishna852@gmail.com")
 CANDIDATE_PHONE = os.getenv("CANDIDATE_PHONE", "989-954-2212")
 STORAGE_CONN_STR = os.getenv("STORAGE_CONN_STR")
 
-# New Dice Credentials
+# Dice Credentials
 DICE_USERNAME = os.getenv("DICE_USERNAME") 
 DICE_PASSWORD = os.getenv("DICE_PASSWORD") 
 
@@ -27,8 +27,8 @@ if STORAGE_CONN_STR:
     except Exception as e:
         print(f"Warning: Could not connect to Azure Table Storage. Error: {e}")
 
-def log_application(url, title, description):
-    """Parses the page title and saves the record to Azure Table Storage"""
+def log_application(url, title, description, status):
+    """Parses the page title and saves the record to Azure Table Storage with Status"""
     if not table_client:
         return
         
@@ -48,10 +48,11 @@ def log_application(url, title, description):
             "Company": company,
             "Location": location,
             "Description": safe_desc,
-            "DateApplied": time.strftime("%Y-%m-%d %H:%M:%S")
+            "Status": status, # <--- NEW STATUS FIELD
+            "DateLogged": time.strftime("%Y-%m-%d %H:%M:%S")
         }
         table_client.create_entity(entity=entity)
-        print(f"--> Successfully logged {job_role} at {company} to Azure DB.")
+        print(f"--> Logged to DB: [{status}] | {job_role} at {company}")
     except Exception as e:
         print(f"Failed to log to database: {e}")
 
@@ -71,7 +72,6 @@ def login_to_dice(page):
         print("-> Entering email...")
         page.locator('input[type="email"], input[name="email"]').first.fill(DICE_USERNAME, timeout=10000)
         
-        # Click "Continue" if Dice uses a two-step login
         next_btn = page.locator('button:has-text("Continue"), button:has-text("Next")').first
         if next_btn.is_visible():
             next_btn.click()
@@ -138,13 +138,15 @@ def apply_on_dice(page):
                         print("OpenAI approved! Initiating application sequence...")
                         
                         try:
-                            # 1. Click Apply
+                            # FIX 1: The Cascading Shadow DOM Locator
                             print("-> Looking for the Apply button...")
-                            apply_button = page.locator('button:has-text("Apply Now"), button.btn-primary:has-text("Apply")').first
+                            
+                            # We use a broad CSS selector that natively pierces Shadow DOMs in modern Playwright
+                            apply_button = page.locator('apply-button-wc button, button:has-text("Apply"), a:has-text("Apply")').first
                             apply_button.click(timeout=10000)
                             time.sleep(4)
                             
-                            # 2. Smart Form Filler (Handles both empty and pre-filled profile states)
+                            # 2. Smart Form Filler
                             first_name_input = page.locator('input[name*="first"], input[placeholder*="First"]').first
                             try:
                                 if first_name_input.is_visible(timeout=3000):
@@ -167,16 +169,7 @@ def apply_on_dice(page):
                             except:
                                 pass
 
-                            # 4. Upload Resume (If it isn't using the saved profile resume)
-                            try:
-                                file_input = page.locator('input[type="file"]').first
-                                if file_input.is_visible(timeout=2000):
-                                    print("-> Uploading resume...")
-                                    file_input.set_input_files(RESUME_PATH)
-                            except:
-                                print("-> Using saved profile resume.")
-
-                            # 5. Click through the "Next" wizard
+                            # 4. Click through the "Next" wizard for complex forms
                             for i in range(3):
                                 try:
                                     next_btn = page.locator('button:has-text("Next")').first
@@ -187,19 +180,24 @@ def apply_on_dice(page):
                                 except:
                                     break
 
-                            # 6. Submit Application
+                            # 5. Submit Application
                             print("-> Submitting application...")
                             submit_btn = page.locator('button:has-text("Submit"), button:has-text("Send")').first
                             submit_btn.click(timeout=5000)
                             print("✅ Application submitted successfully!")
                             
-                            log_application(url, page.title(), description_text)
+                            # Log as Successful Apply
+                            log_application(url, page.title(), description_text, "Approved & Applied")
                             
                         except Exception as apply_err:
                             print(f"❌ Application step failed! Exact Form Error: {apply_err}")
+                            # Log as Failed Apply
+                            log_application(url, page.title(), description_text, "Approved but Failed")
                             
                     else:
                         print("OpenAI rejected this role. Skipping.")
+                        # Log as Rejected
+                        log_application(url, page.title(), description_text, "Rejected by AI")
                 
                 except Exception as inner_e:
                     print(f"Failed to process individual job. Skipping. Error: {inner_e}")
@@ -214,8 +212,6 @@ def run_scraper():
         page = context.new_page()
         
         stealth_sync(page) 
-        
-        # Trigger the authentication bypass before scraping
         login_to_dice(page)
         apply_on_dice(page)
         
