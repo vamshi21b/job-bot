@@ -6,6 +6,7 @@ from playwright_stealth import stealth_sync
 from azure.data.tables import TableClient
 from brain import evaluate_job
 
+# 1. Pull secure details from Azure Environment Variables
 CANDIDATE_NAME = os.getenv("CANDIDATE_NAME", "Vamshi Krishna Boddu")
 CANDIDATE_EMAIL = os.getenv("CANDIDATE_EMAIL", "vamshikrishna852@gmail.com")
 CANDIDATE_PHONE = os.getenv("CANDIDATE_PHONE", "989-954-2212")
@@ -27,6 +28,7 @@ if STORAGE_CONN_STR:
 def log_application(url, job_role, company, description, status):
     if not table_client:
         return
+        
     try:
         safe_desc = description[:30000] if description else "No description extracted"
         if not job_role: job_role = "Unknown Role"
@@ -60,6 +62,7 @@ def login_to_dice(page):
         page.wait_for_load_state('domcontentloaded')
         time.sleep(3)
         
+        print("-> Entering email...")
         page.locator('input[type="email"]:visible, input[name="email"]:visible').first.fill(DICE_USERNAME, timeout=10000)
         
         next_btn = page.locator('button:has-text("Continue"):visible, button:has-text("Next"):visible').first
@@ -67,7 +70,10 @@ def login_to_dice(page):
             next_btn.click()
             time.sleep(2)
             
+        print("-> Entering password...")
         page.locator('input[type="password"]:visible, input[name="password"]:visible').first.fill(DICE_PASSWORD, timeout=10000)
+        
+        print("-> Clicking Sign In...")
         page.locator('button:has-text("Sign In"):visible, button[type="submit"]:visible').first.click()
         
         time.sleep(5)
@@ -145,7 +151,7 @@ def apply_on_dice(page):
                                 log_application(url, job_role, company, description_text, "Already Applied")
                                 continue
 
-                            # 2. JavaScript Click Injection (Bypasses UI Locks)
+                            # 2. JavaScript Click Injection to open Modal
                             print("-> Clicking Apply Button via JS...")
                             page.evaluate('''() => {
                                 const wc = document.querySelector('apply-button-wc');
@@ -194,14 +200,13 @@ def apply_on_dice(page):
                                 except:
                                     break
 
-                            # 5. Submit Application
+                            # 5. Submit Application (Simulating human PointerEvent)
                             print("-> Submitting application...")
                             try:
                                 submit_btn = page.locator('button:has-text("Submit Application"):visible, button:has-text("Submit"):visible, button:has-text("Finish"):visible, button:has-text("Send"):visible, button.btn-primary:has-text("Apply"):visible').first
                                 submit_btn.click(timeout=5000, force=True)
                             except:
                                 print("-> Standard submit failed. Forcing submission via Javascript...")
-                                # Simulate a TRUE human mouse event to bypass React/Angular event listeners
                                 page.evaluate('''() => {
                                     const buttons = Array.from(document.querySelectorAll('button.btn-primary'));
                                     const finalBtn = buttons.find(b => b.innerText.includes('Submit') || b.innerText.includes('Apply') || b.innerText.includes('Finish'));
@@ -216,15 +221,13 @@ def apply_on_dice(page):
                                         finalBtn.dispatchEvent(event);
                                     }
                                 }''')
-                                
-                            # Wait for the success modal to render
-                            time.sleep(4) 
                             
-                            # Verify if the application actually went through
+                            # Verify success by checking the screen text
+                            time.sleep(4) 
                             success_check = page.evaluate('''() => {
-                                return document.body.innerText.includes('success') || 
-                                       document.body.innerText.includes('applied') ||
-                                       document.body.innerText.includes('received');
+                                return document.body.innerText.toLowerCase().includes('success') || 
+                                       document.body.innerText.toLowerCase().includes('applied') ||
+                                       document.body.innerText.toLowerCase().includes('received');
                             }''')
                             
                             if success_check:
@@ -233,6 +236,10 @@ def apply_on_dice(page):
                             else:
                                 print("❌ Application submit button clicked, but success screen not detected. May have failed.")
                                 log_application(url, job_role, company, description_text, "Approved but Failed")
+                            
+                        except Exception as apply_err:
+                            print(f"❌ Application step failed! Exact Form Error: {apply_err}")
+                            log_application(url, job_role, company, description_text, "Approved but Failed")
                             
                     else:
                         print("OpenAI rejected this role. Skipping.")
@@ -246,7 +253,7 @@ def apply_on_dice(page):
 
 def run_scraper():
     with sync_playwright() as p:
-        # FIX 1: Add --disable-dev-shm-usage to prevent the container from crashing
+        # Added arguments to prevent Azure Container out-of-memory crashes
         browser = p.chromium.launch(
             headless=True,
             args=["--disable-dev-shm-usage", "--no-sandbox", "--disable-gpu"]
