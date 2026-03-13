@@ -27,18 +27,17 @@ if STORAGE_CONN_STR:
     except Exception as e:
         print(f"Warning: Could not connect to Azure Table Storage. Error: {e}")
 
-def log_application(url, title, description, status):
-    """Parses the page title and saves the record to Azure Table Storage with Status"""
+def log_application(url, job_role, company, description, status):
+    """Saves the record to Azure Table Storage with Status"""
     if not table_client:
         return
         
     try:
-        parts = title.replace('| Dice.com', '').split(' - ')
-        job_role = parts[0].strip() if len(parts) > 0 else "Unknown Role"
-        company = parts[1].strip() if len(parts) > 1 else "Unknown Company"
-        location = parts[2].strip() if len(parts) > 2 else "Unknown Location"
-        
         safe_desc = description[:30000] if description else "No description extracted"
+        
+        # Fallbacks just in case the UI scraper fails
+        if not job_role: job_role = "Unknown Role"
+        if not company: company = "Unknown Company"
 
         entity = {
             "PartitionKey": "Dice",
@@ -46,9 +45,9 @@ def log_application(url, title, description, status):
             "JobUrl": url,
             "JobRole": job_role,
             "Company": company,
-            "Location": location,
+            "Location": "Remote/Dallas", # Standardized for these specific queues
             "Description": safe_desc,
-            "Status": status, # <--- NEW STATUS FIELD
+            "Status": status, 
             "DateLogged": time.strftime("%Y-%m-%d %H:%M:%S")
         }
         table_client.create_entity(entity=entity)
@@ -59,7 +58,7 @@ def log_application(url, title, description, status):
 def login_to_dice(page):
     """Authenticates the bot to bypass the Dice login wall"""
     if not DICE_USERNAME or not DICE_PASSWORD:
-        print("⚠️ Warning: No DICE_USERNAME or DICE_PASSWORD found. Bot will attempt to apply as a guest.")
+        print("⚠️ Warning: No credentials found. Bot will attempt to apply as a guest.")
         return
 
     print("\n--- 🔐 Authenticating with Dice ---")
@@ -70,21 +69,21 @@ def login_to_dice(page):
         time.sleep(3)
         
         print("-> Entering email...")
-        page.locator('input[type="email"], input[name="email"]').first.fill(DICE_USERNAME, timeout=10000)
+        page.locator('input[type="email"]:visible, input[name="email"]:visible').first.fill(DICE_USERNAME, timeout=10000)
         
-        next_btn = page.locator('button:has-text("Continue"), button:has-text("Next")').first
+        next_btn = page.locator('button:has-text("Continue"):visible, button:has-text("Next"):visible').first
         if next_btn.is_visible():
             next_btn.click()
             time.sleep(2)
             
         print("-> Entering password...")
-        page.locator('input[type="password"], input[name="password"]').first.fill(DICE_PASSWORD, timeout=10000)
+        page.locator('input[type="password"]:visible, input[name="password"]:visible').first.fill(DICE_PASSWORD, timeout=10000)
         
         print("-> Clicking Sign In...")
-        page.locator('button:has-text("Sign In"), button[type="submit"]').first.click()
+        page.locator('button:has-text("Sign In"):visible, button[type="submit"]:visible').first.click()
         
         time.sleep(5)
-        print("✅ Successfully logged in! The login wall is now bypassed.")
+        print("✅ Successfully logged in!")
     except Exception as e:
         print(f"❌ Failed to log in. Error: {e}")
 
@@ -126,6 +125,17 @@ def apply_on_dice(page):
                     page.wait_for_load_state('domcontentloaded', timeout=15000)
                     time.sleep(2) 
                     
+                    # 1. Scrape the Job Role and Company BEFORE we click Apply
+                    try:
+                        job_role = page.locator('h1.jobTitle, h1[data-cy="jobTitle"]').first.inner_text(timeout=3000)
+                        company = page.locator('a[data-cy="companyNameLink"]').first.inner_text(timeout=3000)
+                    except:
+                        # Fallback if the UI changes
+                        parts = page.title().replace('| Dice.com', '').split(' - ')
+                        job_role = parts[0].strip() if len(parts) > 0 else "Unknown Role"
+                        company = parts[1].strip() if len(parts) > 1 else "Unknown Company"
+
+                    # 2. Extract Description for the AI
                     try:
                         description_text = page.locator('#jobdescSec, .job-description, [data-cy="job-description"]').first.inner_text(timeout=5000)
                     except:
@@ -138,66 +148,63 @@ def apply_on_dice(page):
                         print("OpenAI approved! Initiating application sequence...")
                         
                         try:
-                            # FIX 1: The Cascading Shadow DOM Locator
+                            # 3. Click Apply (Using resilient CSS locators)
                             print("-> Looking for the Apply button...")
-                            
-                            # We use a broad CSS selector that natively pierces Shadow DOMs in modern Playwright
-                            apply_button = page.locator('apply-button-wc button, button:has-text("Apply"), a:has-text("Apply")').first
-                            apply_button.click(timeout=10000)
+                            apply_button = page.locator('apply-button-wc, button:has-text("Apply Now"):visible, button:has-text("Easy Apply"):visible, a:has-text("Apply Now"):visible').first
+                            apply_button.click(timeout=10000, force=True)
                             time.sleep(4)
                             
-                            # 2. Smart Form Filler
-                            first_name_input = page.locator('input[name*="first"], input[placeholder*="First"]').first
+                            # 4. Smart Form Filler - Wrapped in a try block so it doesn't crash the pipeline if pre-filled
                             try:
+                                first_name_input = page.locator('input[name*="first"]:visible, input[placeholder*="First"]:visible').first
                                 if first_name_input.is_visible(timeout=3000):
                                     print("-> Filling empty contact fields...")
                                     name_parts = CANDIDATE_NAME.split()
                                     first_name = name_parts[0]
                                     last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
-                                    first_name_input.fill(first_name)
-                                    page.locator('input[name*="last"], input[placeholder*="Last"]').first.fill(last_name)
-                                    page.locator('input[type="email"], input[name*="email"]').first.fill(CANDIDATE_EMAIL)
+                                    first_name_input.fill(first_name, force=True)
+                                    page.locator('input[name*="last"]:visible, input[placeholder*="Last"]:visible').first.fill(last_name, force=True)
+                                    page.locator('input[type="email"]:visible, input[name*="email"]:visible').first.fill(CANDIDATE_EMAIL, force=True)
+                                else:
+                                    print("-> Contact info already pre-filled by Dice Profile!")
                             except:
-                                print("-> Contact info already pre-filled by Dice Profile!")
+                                print("-> Skipping contact fields (Not found or already pre-filled).")
 
-                            # 3. Phone Number 
+                            # 5. Phone Number 
                             try:
-                                phone_input = page.locator('input[type="tel"], input[name*="phone"]').first
+                                phone_input = page.locator('input[type="tel"]:visible, input[name*="phone"]:visible').first
                                 if phone_input.is_visible(timeout=2000) and not phone_input.input_value():
                                     print("-> Filling phone number...")
-                                    phone_input.fill(CANDIDATE_PHONE)
+                                    phone_input.fill(CANDIDATE_PHONE, force=True)
                             except:
                                 pass
 
-                            # 4. Click through the "Next" wizard for complex forms
-                            for i in range(3):
+                            # 6. Click through the "Next" wizard (Upgraded to 5 loops)
+                            for i in range(5):
                                 try:
-                                    next_btn = page.locator('button:has-text("Next")').first
+                                    next_btn = page.locator('button:has-text("Next"):visible, button:has-text("Continue"):visible').first
                                     if next_btn.is_visible(timeout=1000):
                                         print(f"-> Clicking Next (Step {i+1})...")
-                                        next_btn.click()
+                                        next_btn.click(force=True)
                                         time.sleep(2)
                                 except:
                                     break
 
-                            # 5. Submit Application
+                            # 7. Submit Application (Using strict :visible tags)
                             print("-> Submitting application...")
-                            submit_btn = page.locator('button:has-text("Submit"), button:has-text("Send")').first
-                            submit_btn.click(timeout=5000)
+                            submit_btn = page.locator('button:has-text("Submit Application"):visible, button:has-text("Submit"):visible, button:has-text("Finish"):visible, button:has-text("Send"):visible').first
+                            submit_btn.click(timeout=5000, force=True)
                             print("✅ Application submitted successfully!")
                             
-                            # Log as Successful Apply
-                            log_application(url, page.title(), description_text, "Approved & Applied")
+                            log_application(url, job_role, company, description_text, "Approved & Applied")
                             
                         except Exception as apply_err:
                             print(f"❌ Application step failed! Exact Form Error: {apply_err}")
-                            # Log as Failed Apply
-                            log_application(url, page.title(), description_text, "Approved but Failed")
+                            log_application(url, job_role, company, description_text, "Approved but Failed")
                             
                     else:
                         print("OpenAI rejected this role. Skipping.")
-                        # Log as Rejected
-                        log_application(url, page.title(), description_text, "Rejected by AI")
+                        log_application(url, job_role, company, description_text, "Rejected by AI")
                 
                 except Exception as inner_e:
                     print(f"Failed to process individual job. Skipping. Error: {inner_e}")
