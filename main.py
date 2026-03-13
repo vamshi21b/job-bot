@@ -194,27 +194,45 @@ def apply_on_dice(page):
                                 except:
                                     break
 
-                            # 5. Submit Application (Upgraded to catch "Apply" and use JS injection)
+                            # 5. Submit Application
                             print("-> Submitting application...")
                             try:
-                                submit_btn = page.locator('button:has-text("Submit"):visible, button:has-text("Finish"):visible, button:has-text("Send"):visible, button.btn-primary:has-text("Apply"):visible').first
+                                submit_btn = page.locator('button:has-text("Submit Application"):visible, button:has-text("Submit"):visible, button:has-text("Finish"):visible, button:has-text("Send"):visible, button.btn-primary:has-text("Apply"):visible').first
                                 submit_btn.click(timeout=5000, force=True)
                             except:
                                 print("-> Standard submit failed. Forcing submission via Javascript...")
+                                # Simulate a TRUE human mouse event to bypass React/Angular event listeners
                                 page.evaluate('''() => {
                                     const buttons = Array.from(document.querySelectorAll('button.btn-primary'));
                                     const finalBtn = buttons.find(b => b.innerText.includes('Submit') || b.innerText.includes('Apply') || b.innerText.includes('Finish'));
-                                    if (finalBtn) finalBtn.click();
+                                    
+                                    if (finalBtn) {
+                                        const event = new PointerEvent('click', {
+                                            view: window,
+                                            bubbles: true,
+                                            cancelable: true,
+                                            buttons: 1
+                                        });
+                                        finalBtn.dispatchEvent(event);
+                                    }
                                 }''')
                                 
-                            time.sleep(3) # Give the database a moment to register the application
-                            print("✅ Application submitted successfully!")
+                            # Wait for the success modal to render
+                            time.sleep(4) 
                             
-                            log_application(url, job_role, company, description_text, "Approved & Applied")
+                            # Verify if the application actually went through
+                            success_check = page.evaluate('''() => {
+                                return document.body.innerText.includes('success') || 
+                                       document.body.innerText.includes('applied') ||
+                                       document.body.innerText.includes('received');
+                            }''')
                             
-                        except Exception as apply_err:
-                            print(f"❌ Application step failed! Exact Form Error: {apply_err}")
-                            log_application(url, job_role, company, description_text, "Approved but Failed")
+                            if success_check:
+                                print("✅ Application verified and submitted successfully!")
+                                log_application(url, job_role, company, description_text, "Approved & Applied")
+                            else:
+                                print("❌ Application submit button clicked, but success screen not detected. May have failed.")
+                                log_application(url, job_role, company, description_text, "Approved but Failed")
                             
                     else:
                         print("OpenAI rejected this role. Skipping.")
