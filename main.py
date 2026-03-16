@@ -28,7 +28,6 @@ if STORAGE_CONN_STR:
 def log_application(url, job_role, company, description, status):
     if not table_client:
         return
-        
     try:
         safe_desc = description[:30000] if description else "No description extracted"
         if not job_role: job_role = "Unknown Role"
@@ -62,7 +61,6 @@ def login_to_dice(page):
         page.wait_for_load_state('domcontentloaded')
         time.sleep(3)
         
-        print("-> Entering email...")
         page.locator('input[type="email"]:visible, input[name="email"]:visible').first.fill(DICE_USERNAME, timeout=10000)
         
         next_btn = page.locator('button:has-text("Continue"):visible, button:has-text("Next"):visible').first
@@ -70,10 +68,7 @@ def login_to_dice(page):
             next_btn.click()
             time.sleep(2)
             
-        print("-> Entering password...")
         page.locator('input[type="password"]:visible, input[name="password"]:visible').first.fill(DICE_PASSWORD, timeout=10000)
-        
-        print("-> Clicking Sign In...")
         page.locator('button:has-text("Sign In"):visible, button[type="submit"]:visible').first.click()
         
         time.sleep(5)
@@ -151,8 +146,8 @@ def apply_on_dice(page):
                                 log_application(url, job_role, company, description_text, "Already Applied")
                                 continue
 
-                            # 2. JavaScript Click Injection to open Modal
-                            print("-> Clicking Apply Button via JS...")
+                            # 2. Open Modal via JS Injection
+                            print("-> Clicking Apply Button to open modal...")
                             page.evaluate('''() => {
                                 const wc = document.querySelector('apply-button-wc');
                                 if (wc && wc.shadowRoot) {
@@ -164,27 +159,26 @@ def apply_on_dice(page):
                                     if (applyBtn) applyBtn.click();
                                 }
                             }''')
-                            time.sleep(4)
+                            time.sleep(3) # Give modal time to load
                             
-                            # 3. Smart Form Filler
+                            # 3. Smart Form Filler (Waiting explicitly)
                             try:
-                                first_name_input = page.locator('input[name*="first"]:visible, input[placeholder*="First"]:visible').first
-                                if first_name_input.is_visible(timeout=3000):
-                                    print("-> Filling empty contact fields...")
-                                    name_parts = CANDIDATE_NAME.split()
-                                    first_name = name_parts[0]
-                                    last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
-                                    first_name_input.fill(first_name, force=True)
-                                    page.locator('input[name*="last"]:visible, input[placeholder*="Last"]:visible').first.fill(last_name, force=True)
-                                    page.locator('input[type="email"]:visible, input[name*="email"]:visible').first.fill(CANDIDATE_EMAIL, force=True)
-                                else:
-                                    print("-> Contact info already pre-filled by Dice Profile!")
+                                first_name_input = page.locator('input[name*="first"], input[placeholder*="First"]').first
+                                first_name_input.wait_for(state='visible', timeout=2000)
+                                print("-> Filling contact fields...")
+                                name_parts = CANDIDATE_NAME.split()
+                                first_name = name_parts[0]
+                                last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+                                first_name_input.fill(first_name, force=True)
+                                page.locator('input[name*="last"], input[placeholder*="Last"]').first.fill(last_name, force=True)
+                                page.locator('input[type="email"], input[name*="email"]').first.fill(CANDIDATE_EMAIL, force=True)
                             except:
-                                print("-> Skipping contact fields (Not found or already pre-filled).")
+                                print("-> Contact info already pre-filled by Dice Profile!")
 
                             try:
-                                phone_input = page.locator('input[type="tel"]:visible, input[name*="phone"]:visible').first
-                                if phone_input.is_visible(timeout=2000) and not phone_input.input_value():
+                                phone_input = page.locator('input[type="tel"], input[name*="phone"]').first
+                                phone_input.wait_for(state='visible', timeout=1500)
+                                if not phone_input.input_value():
                                     phone_input.fill(CANDIDATE_PHONE, force=True)
                             except:
                                 pass
@@ -192,42 +186,65 @@ def apply_on_dice(page):
                             # 4. Click through the "Next" wizard
                             for i in range(5):
                                 try:
-                                    next_btn = page.locator('button:has-text("Next"):visible, button:has-text("Continue"):visible').first
-                                    if next_btn.is_visible(timeout=1000):
-                                        print(f"-> Clicking Next (Step {i+1})...")
-                                        next_btn.click(force=True)
-                                        time.sleep(2)
+                                    # Wait for Next button to actually appear on each step
+                                    next_btn = page.locator('button:has-text("Next"), button:has-text("Continue")').first
+                                    next_btn.wait_for(state='visible', timeout=2500)
+                                    print(f"-> Clicking Next (Step {i+1})...")
+                                    # Physical pointer event to bypass UI blocks
+                                    next_btn.evaluate('''el => {
+                                        const event = new PointerEvent('click', { view: window, bubbles: true, cancelable: true, buttons: 1 });
+                                        el.dispatchEvent(event);
+                                    }''')
+                                    time.sleep(2)
                                 except:
-                                    break
+                                    break # Reached the final step
 
-                            # 5. Submit Application (Simulating human PointerEvent)
+                            # 5. Submit Application
                             print("-> Submitting application...")
                             try:
-                                submit_btn = page.locator('button:has-text("Submit Application"):visible, button:has-text("Submit"):visible, button:has-text("Finish"):visible, button:has-text("Send"):visible, button.btn-primary:has-text("Apply"):visible').first
-                                submit_btn.click(timeout=5000, force=True)
-                            except:
-                                print("-> Standard submit failed. Forcing submission via Javascript...")
+                                submit_btn = page.locator('button:has-text("Submit Application"), button:has-text("Submit"), button:has-text("Finish"), button:has-text("Send")').first
+                                submit_btn.wait_for(state='visible', timeout=3000)
+                                submit_btn.evaluate('''el => {
+                                    const event = new PointerEvent('click', { view: window, bubbles: true, cancelable: true, buttons: 1 });
+                                    el.dispatchEvent(event);
+                                }''')
+                            except Exception as e:
+                                print("-> Standard submit failed. Forcing submission via Shadow DOM script...")
                                 page.evaluate('''() => {
-                                    const buttons = Array.from(document.querySelectorAll('button.btn-primary'));
-                                    const finalBtn = buttons.find(b => b.innerText.includes('Submit') || b.innerText.includes('Apply') || b.innerText.includes('Finish'));
-                                    
-                                    if (finalBtn) {
-                                        const event = new PointerEvent('click', {
-                                            view: window,
-                                            bubbles: true,
-                                            cancelable: true,
-                                            buttons: 1
+                                    function pierce(root) {
+                                        let found = null;
+                                        root.querySelectorAll('*').forEach(el => {
+                                            if (el.shadowRoot) {
+                                                let res = pierce(el.shadowRoot);
+                                                if (res) found = res;
+                                            }
+                                            if (el.tagName === 'BUTTON') {
+                                                const txt = (el.innerText || '').toLowerCase().trim();
+                                                if (txt === 'submit' || txt === 'finish' || txt === 'submit application') {
+                                                    found = el;
+                                                }
+                                            }
                                         });
+                                        return found;
+                                    }
+                                    const finalBtn = pierce(document);
+                                    if (finalBtn) {
+                                        const event = new PointerEvent('click', { view: window, bubbles: true, cancelable: true, buttons: 1 });
                                         finalBtn.dispatchEvent(event);
                                     }
                                 }''')
                             
-                            # Verify success by checking the screen text
                             time.sleep(4) 
+                            
+                            # 6. Mathematical Success Checker
                             success_check = page.evaluate('''() => {
-                                return document.body.innerText.toLowerCase().includes('success') || 
-                                       document.body.innerText.toLowerCase().includes('applied') ||
-                                       document.body.innerText.toLowerCase().includes('received');
+                                // Dice updates the original button on the page when successful
+                                const wc = document.querySelector('apply-button-wc');
+                                if (wc && wc.getAttribute('status') === 'applied') return true;
+                                
+                                // Explicit text check fallback
+                                const text = document.body.innerText.toLowerCase();
+                                return text.includes('your application was sent') || text.includes('application submitted') || text.includes('successfully applied');
                             }''')
                             
                             if success_check:
@@ -253,7 +270,6 @@ def apply_on_dice(page):
 
 def run_scraper():
     with sync_playwright() as p:
-        # Added arguments to prevent Azure Container out-of-memory crashes
         browser = p.chromium.launch(
             headless=True,
             args=["--disable-dev-shm-usage", "--no-sandbox", "--disable-gpu"]
