@@ -6,7 +6,6 @@ from playwright_stealth import stealth_sync
 from azure.data.tables import TableClient
 from brain import evaluate_job
 
-# 1. Pull secure details
 CANDIDATE_NAME = os.getenv("CANDIDATE_NAME", "Vamshi Krishna Boddu")
 CANDIDATE_EMAIL = os.getenv("CANDIDATE_EMAIL", "vamshikrishna852@gmail.com")
 CANDIDATE_PHONE = os.getenv("CANDIDATE_PHONE", "989-954-2212")
@@ -14,7 +13,6 @@ STORAGE_CONN_STR = os.getenv("STORAGE_CONN_STR")
 
 DICE_USERNAME = os.getenv("DICE_USERNAME") 
 DICE_PASSWORD = os.getenv("DICE_PASSWORD") 
-
 RESUME_PATH = "/app/resume.pdf"
 
 table_client = None
@@ -22,8 +20,7 @@ if STORAGE_CONN_STR:
     try:
         table_client = TableClient.from_connection_string(conn_str=STORAGE_CONN_STR, table_name="AppliedJobs")
         print("Successfully connected to Azure Table Storage.")
-    except Exception as e:
-        pass
+    except: pass
 
 def log_application(url, job_role, company, description, status):
     if not table_client: return
@@ -39,8 +36,7 @@ def log_application(url, job_role, company, description, status):
         }
         table_client.create_entity(entity=entity)
         print(f"--> Logged to DB: [{status}] | {job_role} at {company}")
-    except:
-        pass
+    except: pass
 
 def login_to_dice(page):
     if not DICE_USERNAME or not DICE_PASSWORD: return
@@ -62,7 +58,7 @@ def login_to_dice(page):
         print(f"❌ Failed to log in: {e}")
 
 def solve_custom_questions(page, fname, lname, mail, ph):
-    """Aggressively auto-fills required fields inside isolated iframes"""
+    """Aggressively auto-fills required fields using React State Bypass"""
     for frame in page.frames:
         try:
             frame.evaluate(f'''([fname, lname, mail, ph]) => {{
@@ -89,11 +85,11 @@ def solve_custom_questions(page, fname, lname, mail, ph):
                             const val = r.value.toLowerCase();
                             const parentText = r.parentElement.parentElement.innerText.toLowerCase();
                             
-                            if (text.includes('yes') || val.includes('yes')) {{
+                            if (text.includes('yes') || val.includes('yes') || text === 'y') {{
                                 if (!parentText.includes('sponsorship') && !parentText.includes('require visa')) {{
                                     r.click(); clicked = true;
                                 }}
-                            }} else if (text.includes('no') || val.includes('no')) {{
+                            }} else if (text.includes('no') || val.includes('no') || text === 'n') {{
                                 if (parentText.includes('sponsorship') || parentText.includes('require visa')) {{
                                     r.click(); clicked = true;
                                 }}
@@ -107,9 +103,13 @@ def solve_custom_questions(page, fname, lname, mail, ph):
                     if (!c.checked) c.click();
                 }});
                 
-                // 3. Text inputs & Contact Fields
+                // 3. Text inputs & Contact Fields (REACT VIRTUAL DOM BYPASS)
+                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set : null;
+                const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set : null;
+
                 document.querySelectorAll('input, textarea').forEach(i => {{
                     if (i.value || i.readOnly || i.disabled || window.getComputedStyle(i).visibility === 'hidden') return;
+                    if (i.type === 'radio' || i.type === 'checkbox' || i.type === 'submit' || i.type === 'file' || i.type === 'hidden') return;
                     
                     const name = (i.name || '').toLowerCase();
                     const placeholder = (i.placeholder || '').toLowerCase();
@@ -121,21 +121,30 @@ def solve_custom_questions(page, fname, lname, mail, ph):
                     else if (name.includes('email') || placeholder.includes('email') || type === 'email') {{ fillValue = mail; }} 
                     else if (name.includes('phone') || placeholder.includes('phone') || type === 'tel') {{ fillValue = ph; }} 
                     else if (name.includes('link') || placeholder.includes('linkedin')) {{ fillValue = "https://linkedin.com/in/vamshikrishnaboddu"; }} 
-                    else if (type === 'number' || name.includes('year') || placeholder.includes('year')) {{ fillValue = "8"; }} 
-                    else if (type === 'text' || type === 'textarea') {{ fillValue = "Yes"; }}
+                    else if (type === 'number' || name.includes('year') || placeholder.includes('year') || name.includes('exp')) {{ fillValue = "8"; }} 
+                    else if (name.includes('salary') || placeholder.includes('salary') || name.includes('pay') || name.includes('rate')) {{ fillValue = "150000"; }}
+                    else if (name.includes('location') || placeholder.includes('city') || name.includes('address')) {{ fillValue = "Dallas, TX"; }}
+                    else if (type === 'text' || type === 'textarea') {{ fillValue = "Yes"; }} 
                     
                     if (fillValue) {{
-                        i.value = fillValue;
+                        if (i.tagName === 'TEXTAREA' && nativeTextAreaValueSetter) {{
+                            nativeTextAreaValueSetter.call(i, fillValue);
+                        }} else if (nativeInputValueSetter) {{
+                            nativeInputValueSetter.call(i, fillValue);
+                        }} else {{
+                            i.value = fillValue;
+                        }}
+                        // Fire events to force React/Angular to read the new value
                         i.dispatchEvent(new Event('input', {{ bubbles: true }}));
                         i.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        i.dispatchEvent(new Event('blur', {{ bubbles: true }}));
                     }}
                 }});
             }}''', [fname, lname, mail, ph])
-        except:
-            pass
+        except: pass
 
 def universal_click(page, keywords, timeout=5):
-    """Finds buttons across all iframes and triggers a physical hardware click"""
+    """Finds buttons and INPUT submits across all iframes and triggers a physical hardware click"""
     start = time.time()
     while time.time() - start < timeout:
         for frame in page.frames:
@@ -149,11 +158,11 @@ def universal_click(page, keywords, timeout=5):
                                 let res = pierce(el.shadowRoot);
                                 if (res) found = res;
                             }
-                            
                             // Prevent clicking main page if modal is active
                             if (document.querySelector('seds-modal') && !el.closest('seds-modal') && !window.location.href.includes('iframe')) continue; 
                             
-                            if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button') {
+                            // Check for BUTTON, A, or INPUT type=submit
+                            if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button' || (el.tagName === 'INPUT' && (el.type === 'submit' || el.type === 'button'))) {
                                 if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled')) continue;
                                 
                                 const txt = (el.innerText || el.value || '').toLowerCase().trim();
@@ -179,8 +188,7 @@ def universal_click(page, keywords, timeout=5):
                     return false;
                 }''', [keywords])
                 if clicked: return True
-            except:
-                continue
+            except: continue
         time.sleep(1)
     return False
 
@@ -259,25 +267,18 @@ def apply_on_dice(page):
                             fname = name_parts[0]
                             lname = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
 
-                            submitted = False
                             for step in range(7):
                                 print(f"-> Form Step {step+1}...")
-                                
-                                # 1. Execute the AI Auto-Solver before looking for buttons
                                 solve_custom_questions(page, fname, lname, CANDIDATE_EMAIL, CANDIDATE_PHONE)
                                 time.sleep(1)
                                 
-                                # 2. Check for Submit Button
                                 if universal_click(page, ['submit application', 'submit', 'finish application', 'finish', 'send'], timeout=3):
                                     print("-> Clicked Submit button!")
-                                    submitted = True
                                     time.sleep(5)
                                     break
-                                # 3. Check for Next Button
                                 elif universal_click(page, ['next', 'continue'], timeout=3):
                                     print("-> Clicked Next/Continue button.")
                                     time.sleep(3)
-                                # 4. Fallback checking for dynamic Apply buttons
                                 elif universal_click(page, ['apply'], timeout=3):
                                     print("-> Clicked generic 'Apply' button inside modal.")
                                     time.sleep(3)
