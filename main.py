@@ -6,7 +6,7 @@ from playwright_stealth import stealth_sync
 from azure.data.tables import TableClient
 from brain import evaluate_job
 
-# 1. Pull secure details from Azure Environment Variables
+# 1. Pull secure details
 CANDIDATE_NAME = os.getenv("CANDIDATE_NAME", "Vamshi Krishna Boddu")
 CANDIDATE_EMAIL = os.getenv("CANDIDATE_EMAIL", "vamshikrishna852@gmail.com")
 CANDIDATE_PHONE = os.getenv("CANDIDATE_PHONE", "989-954-2212")
@@ -23,7 +23,7 @@ if STORAGE_CONN_STR:
         table_client = TableClient.from_connection_string(conn_str=STORAGE_CONN_STR, table_name="AppliedJobs")
         print("Successfully connected to Azure Table Storage.")
     except Exception as e:
-        print(f"Warning: Could not connect to Azure Table Storage. Error: {e}")
+        print(f"Warning: Could not connect to Azure DB. Error: {e}")
 
 def log_application(url, job_role, company, description, status):
     if not table_client:
@@ -76,6 +76,81 @@ def login_to_dice(page):
     except Exception as e:
         print(f"❌ Failed to log in. Error: {e}")
 
+def universal_click(page, keywords, timeout=5):
+    """Searches the main page AND all cross-origin iframes for specific buttons"""
+    start = time.time()
+    while time.time() - start < timeout:
+        # Iterate over every single iframe loaded on the page
+        for frame in page.frames:
+            try:
+                clicked = frame.evaluate('''([keywords]) => {
+                    function pierce(root) {
+                        let found = null;
+                        const els = root.querySelectorAll('*');
+                        for (let el of els) {
+                            if (el.shadowRoot) {
+                                let res = pierce(el.shadowRoot);
+                                if (res) found = res;
+                            }
+                            if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button') {
+                                const txt = (el.innerText || el.value || '').toLowerCase().trim();
+                                for (let k of keywords) {
+                                    if (txt === k || (k !== 'submit' && txt.includes(k))) {
+                                        const rect = el.getBoundingClientRect();
+                                        // Ensure the button is actually physically visible on the screen
+                                        if (rect.width > 0 && rect.height > 0 && window.getComputedStyle(el).visibility !== 'hidden') {
+                                            found = el;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if (found) break;
+                        }
+                        return found;
+                    }
+                    const btn = pierce(document);
+                    if (btn) {
+                        // Dispatch a true hardware mouse event
+                        btn.dispatchEvent(new PointerEvent('click', { view: window, bubbles: true, cancelable: true, buttons: 1 }));
+                        return true;
+                    }
+                    return false;
+                }''', [keywords])
+                if clicked:
+                    return True
+            except:
+                continue
+        time.sleep(1)
+    return False
+
+def check_success(page):
+    """Scans all iframes for success confirmation text"""
+    for frame in page.frames:
+        try:
+            success = frame.evaluate('''() => {
+                const text = document.body.innerText.toLowerCase();
+                return text.includes('application was sent') || 
+                       text.includes('application submitted') || 
+                       text.includes('successfully applied') ||
+                       text.includes('applied successfully') ||
+                       text.includes('received your application');
+            }''')
+            if success:
+                return True
+        except:
+            continue
+            
+    # Check if the main apply button changed to "Applied"
+    try:
+        status = page.evaluate("() => { const wc = document.querySelector('apply-button-wc'); return wc ? wc.getAttribute('status') : null; }")
+        if status == 'applied':
+            return True
+    except:
+        pass
+        
+    return False
+
 def apply_on_dice(page):
     print("--- Starting Dice Job Search ---")
     
@@ -104,7 +179,6 @@ def apply_on_dice(page):
                         href = f"https://www.dice.com{href}"
                     job_urls.append(href)
 
-            # Deduplicate the URLs to save OpenAI API Tokens
             job_urls = list(dict.fromkeys(job_urls))
             print(f"Found {len(job_urls)} UNIQUE jobs in this queue.")
 
@@ -159,99 +233,47 @@ def apply_on_dice(page):
                                     if (applyBtn) applyBtn.click();
                                 }
                             }''')
-                            time.sleep(3) # Give modal time to load
                             
-                            # 3. Smart Form Filler (Waiting explicitly)
-                            try:
-                                first_name_input = page.locator('input[name*="first"], input[placeholder*="First"]').first
-                                first_name_input.wait_for(state='visible', timeout=2000)
-                                print("-> Filling contact fields...")
-                                name_parts = CANDIDATE_NAME.split()
-                                first_name = name_parts[0]
-                                last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
-                                first_name_input.fill(first_name, force=True)
-                                page.locator('input[name*="last"], input[placeholder*="Last"]').first.fill(last_name, force=True)
-                                page.locator('input[type="email"], input[name*="email"]').first.fill(CANDIDATE_EMAIL, force=True)
-                            except:
-                                print("-> Contact info already pre-filled by Dice Profile!")
-
-                            try:
-                                phone_input = page.locator('input[type="tel"], input[name*="phone"]').first
-                                phone_input.wait_for(state='visible', timeout=1500)
-                                if not phone_input.input_value():
-                                    phone_input.fill(CANDIDATE_PHONE, force=True)
-                            except:
-                                pass
-
-                            # 4. Click through the "Next" wizard
-                            for i in range(5):
-                                try:
-                                    # Wait for Next button to actually appear on each step
-                                    next_btn = page.locator('button:has-text("Next"), button:has-text("Continue")').first
-                                    next_btn.wait_for(state='visible', timeout=2500)
-                                    print(f"-> Clicking Next (Step {i+1})...")
-                                    # Physical pointer event to bypass UI blocks
-                                    next_btn.evaluate('''el => {
-                                        const event = new PointerEvent('click', { view: window, bubbles: true, cancelable: true, buttons: 1 });
-                                        el.dispatchEvent(event);
-                                    }''')
-                                    time.sleep(2)
-                                except:
-                                    break # Reached the final step
-
-                            # 5. Submit Application
-                            print("-> Submitting application...")
-                            try:
-                                submit_btn = page.locator('button:has-text("Submit Application"), button:has-text("Submit"), button:has-text("Finish"), button:has-text("Send")').first
-                                submit_btn.wait_for(state='visible', timeout=3000)
-                                submit_btn.evaluate('''el => {
-                                    const event = new PointerEvent('click', { view: window, bubbles: true, cancelable: true, buttons: 1 });
-                                    el.dispatchEvent(event);
-                                }''')
-                            except Exception as e:
-                                print("-> Standard submit failed. Forcing submission via Shadow DOM script...")
-                                page.evaluate('''() => {
-                                    function pierce(root) {
-                                        let found = null;
-                                        root.querySelectorAll('*').forEach(el => {
-                                            if (el.shadowRoot) {
-                                                let res = pierce(el.shadowRoot);
-                                                if (res) found = res;
-                                            }
-                                            if (el.tagName === 'BUTTON') {
-                                                const txt = (el.innerText || '').toLowerCase().trim();
-                                                if (txt === 'submit' || txt === 'finish' || txt === 'submit application') {
-                                                    found = el;
-                                                }
-                                            }
-                                        });
-                                        return found;
-                                    }
-                                    const finalBtn = pierce(document);
-                                    if (finalBtn) {
-                                        const event = new PointerEvent('click', { view: window, bubbles: true, cancelable: true, buttons: 1 });
-                                        finalBtn.dispatchEvent(event);
-                                    }
-                                }''')
+                            # Give modal PLENTY of time to load and inject iframes
+                            time.sleep(5) 
                             
-                            time.sleep(4) 
-                            
-                            # 6. Mathematical Success Checker
-                            success_check = page.evaluate('''() => {
-                                // Dice updates the original button on the page when successful
-                                const wc = document.querySelector('apply-button-wc');
-                                if (wc && wc.getAttribute('status') === 'applied') return true;
+                            # 3. Form Loop (Next / Submit)
+                            # We will loop up to 6 times using the new iframe-aware universal_click function
+                            submitted = False
+                            for step in range(6):
+                                print(f"-> Form Step {step+1}...")
                                 
-                                // Explicit text check fallback
-                                const text = document.body.innerText.toLowerCase();
-                                return text.includes('your application was sent') || text.includes('application submitted') || text.includes('successfully applied');
-                            }''')
-                            
-                            if success_check:
+                                # First, try to find and click submit/finish
+                                if universal_click(page, ['submit application', 'submit', 'finish application', 'finish', 'send'], timeout=3):
+                                    print("-> Clicked Submit button!")
+                                    submitted = True
+                                    time.sleep(4)
+                                    break
+                                
+                                # If no submit button, look for next/continue
+                                elif universal_click(page, ['next', 'continue'], timeout=3):
+                                    print("-> Clicked Next/Continue button.")
+                                    time.sleep(3) # Wait for next page of the iframe to load
+                                    
+                                else:
+                                    print("-> Could not find Next or Submit button on this screen.")
+                                    # Fallback: Just look for any primary button inside the iframe
+                                    if universal_click(page, ['apply'], timeout=2):
+                                        print("-> Clicked a generic 'Apply' button.")
+                                        time.sleep(3)
+                                    else:
+                                        print("-> Stuck on form. Breaking loop.")
+                                        break
+                                        
+                            if not submitted:
+                                print("-> Warning: Reached end of loop without explicitly clicking 'Submit'.")
+                                
+                            # 4. Verify success across all iframes
+                            if check_success(page):
                                 print("✅ Application verified and submitted successfully!")
                                 log_application(url, job_role, company, description_text, "Approved & Applied")
                             else:
-                                print("❌ Application submit button clicked, but success screen not detected. May have failed.")
+                                print("❌ Success screen not detected. Form may have failed or required manual input.")
                                 log_application(url, job_role, company, description_text, "Approved but Failed")
                             
                         except Exception as apply_err:
