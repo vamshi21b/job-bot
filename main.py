@@ -6,6 +6,7 @@ from playwright_stealth import stealth_sync
 from azure.data.tables import TableClient
 from brain import evaluate_job
 
+# 1. Pull secure details
 CANDIDATE_NAME = os.getenv("CANDIDATE_NAME", "Vamshi Krishna Boddu")
 CANDIDATE_EMAIL = os.getenv("CANDIDATE_EMAIL", "vamshikrishna852@gmail.com")
 CANDIDATE_PHONE = os.getenv("CANDIDATE_PHONE", "989-954-2212")
@@ -13,6 +14,7 @@ STORAGE_CONN_STR = os.getenv("STORAGE_CONN_STR")
 
 DICE_USERNAME = os.getenv("DICE_USERNAME") 
 DICE_PASSWORD = os.getenv("DICE_PASSWORD") 
+
 RESUME_PATH = "/app/resume.pdf"
 
 table_client = None
@@ -20,7 +22,7 @@ if STORAGE_CONN_STR:
     try:
         table_client = TableClient.from_connection_string(conn_str=STORAGE_CONN_STR, table_name="AppliedJobs")
         print("Successfully connected to Azure Table Storage.")
-    except:
+    except Exception as e:
         pass
 
 def log_application(url, job_role, company, description, status):
@@ -59,44 +61,81 @@ def login_to_dice(page):
     except Exception as e:
         print(f"❌ Failed to log in: {e}")
 
-def solve_custom_questions(page):
-    """Auto-fills common HR questions on the screen before clicking Next"""
+def solve_custom_questions(page, fname, lname, mail, ph):
+    """Aggressively auto-fills required fields inside isolated iframes"""
     for frame in page.frames:
         try:
-            frame.evaluate('''() => {
-                // 1. Dropdowns: Select the second option (usually the first valid answer after "Select One")
-                document.querySelectorAll('select').forEach(s => {
-                    if (s.options.length > 1 && s.selectedIndex <= 0) {
+            frame.evaluate(f'''([fname, lname, mail, ph]) => {{
+                // 1. Dropdowns
+                document.querySelectorAll('select').forEach(s => {{
+                    if (s.options.length > 1 && s.selectedIndex <= 0) {{
                         s.selectedIndex = 1;
-                        s.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                });
+                        s.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+                }});
                 
-                // 2. Radio Buttons / Checkboxes: Look for Yes/No
-                document.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach(r => {
-                    const textNextToIt = (r.nextElementSibling ? r.nextElementSibling.innerText : '').toLowerCase();
-                    const value = r.value.toLowerCase();
+                // 2. Radio Buttons / Checkboxes (Visa/Sponsorship Logic)
+                const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+                const names = [...new Set(radios.map(r => r.name))];
+                names.forEach(name => {{
+                    const group = document.querySelectorAll(`input[name="${{name}}"]`);
+                    let isAnswered = false;
+                    group.forEach(r => {{ if (r.checked) isAnswered = true; }});
                     
-                    // We want to click "Yes" for authorization/clearance, "No" for requiring sponsorship
-                    if ((textNextToIt.includes('yes') || value.includes('yes')) && !r.checked) {
-                        // Avoid answering "Yes" to "Do you need sponsorship?"
-                        const parentText = r.parentElement.parentElement.innerText.toLowerCase();
-                        if (!parentText.includes('sponsorship') && !parentText.includes('require visa')) {
-                            r.click();
-                        }
-                    } else if ((textNextToIt.includes('no') || value.includes('no')) && !r.checked) {
-                        const parentText = r.parentElement.parentElement.innerText.toLowerCase();
-                        if (parentText.includes('sponsorship') || parentText.includes('require visa')) {
-                            r.click();
-                        }
-                    }
-                });
-            }''')
+                    if (!isAnswered) {{
+                        let clicked = false;
+                        group.forEach(r => {{
+                            const text = (r.nextElementSibling ? r.nextElementSibling.innerText : '').toLowerCase();
+                            const val = r.value.toLowerCase();
+                            const parentText = r.parentElement.parentElement.innerText.toLowerCase();
+                            
+                            if (text.includes('yes') || val.includes('yes')) {{
+                                if (!parentText.includes('sponsorship') && !parentText.includes('require visa')) {{
+                                    r.click(); clicked = true;
+                                }}
+                            }} else if (text.includes('no') || val.includes('no')) {{
+                                if (parentText.includes('sponsorship') || parentText.includes('require visa')) {{
+                                    r.click(); clicked = true;
+                                }}
+                            }}
+                        }});
+                        if (!clicked && group.length > 0) group[0].click(); // Fallback
+                    }}
+                }});
+                
+                document.querySelectorAll('input[type="checkbox"]').forEach(c => {{
+                    if (!c.checked) c.click();
+                }});
+                
+                // 3. Text inputs & Contact Fields
+                document.querySelectorAll('input, textarea').forEach(i => {{
+                    if (i.value || i.readOnly || i.disabled || window.getComputedStyle(i).visibility === 'hidden') return;
+                    
+                    const name = (i.name || '').toLowerCase();
+                    const placeholder = (i.placeholder || '').toLowerCase();
+                    const type = (i.type || '').toLowerCase();
+                    let fillValue = null;
+                    
+                    if (name.includes('first') || placeholder.includes('first')) {{ fillValue = fname; }} 
+                    else if (name.includes('last') || placeholder.includes('last')) {{ fillValue = lname; }} 
+                    else if (name.includes('email') || placeholder.includes('email') || type === 'email') {{ fillValue = mail; }} 
+                    else if (name.includes('phone') || placeholder.includes('phone') || type === 'tel') {{ fillValue = ph; }} 
+                    else if (name.includes('link') || placeholder.includes('linkedin')) {{ fillValue = "https://linkedin.com/in/vamshikrishnaboddu"; }} 
+                    else if (type === 'number' || name.includes('year') || placeholder.includes('year')) {{ fillValue = "8"; }} 
+                    else if (type === 'text' || type === 'textarea') {{ fillValue = "Yes"; }}
+                    
+                    if (fillValue) {{
+                        i.value = fillValue;
+                        i.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        i.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+                }});
+            }}''', [fname, lname, mail, ph])
         except:
-            continue
+            pass
 
 def universal_click(page, keywords, timeout=5):
-    """Searches the main page AND iframes, ignoring disabled buttons and the background page"""
+    """Finds buttons across all iframes and triggers a physical hardware click"""
     start = time.time()
     while time.time() - start < timeout:
         for frame in page.frames:
@@ -110,13 +149,11 @@ def universal_click(page, keywords, timeout=5):
                                 let res = pierce(el.shadowRoot);
                                 if (res) found = res;
                             }
-                            // Anti-Background Click: If a modal is open, ignore the main page buttons
-                            if (document.querySelector('seds-modal') && !el.closest('seds-modal') && !window.location.href.includes('iframe')) {
-                                continue; 
-                            }
+                            
+                            // Prevent clicking main page if modal is active
+                            if (document.querySelector('seds-modal') && !el.closest('seds-modal') && !window.location.href.includes('iframe')) continue; 
                             
                             if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button') {
-                                // Ignore disabled buttons
                                 if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled')) continue;
                                 
                                 const txt = (el.innerText || el.value || '').toLowerCase().trim();
@@ -191,8 +228,12 @@ def apply_on_dice(page):
                     
                     try: job_role = page.locator('h1.jobTitle, h1[data-cy="jobTitle"]').first.inner_text(timeout=3000)
                     except: job_role = page.title().replace('| Dice.com', '').split(' - ')[0].strip()
-                    try: company = page.locator('a[data-cy="companyNameLink"]').first.inner_text(timeout=3000)
-                    except: company = "Unknown Company"
+                    
+                    try: 
+                        company = page.locator('a[data-cy="companyNameLink"]').first.inner_text(timeout=3000)
+                    except: 
+                        try: company = page.title().replace('| Dice.com', '').split(' - ')[1].strip()
+                        except: company = "Unknown Company"
 
                     try: description_text = page.locator('#jobdescSec, .job-description').first.inner_text(timeout=5000)
                     except: description_text = page.locator('body').inner_text()
@@ -211,24 +252,34 @@ def apply_on_dice(page):
                                 continue
 
                             print("-> Clicking Apply Button to open modal...")
-                            universal_click(page, ['apply now', 'apply'], timeout=5)
+                            universal_click(page, ['apply now', 'apply', 'easy apply'], timeout=5)
                             time.sleep(5) 
                             
+                            name_parts = CANDIDATE_NAME.split()
+                            fname = name_parts[0]
+                            lname = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+
                             submitted = False
                             for step in range(7):
                                 print(f"-> Form Step {step+1}...")
                                 
-                                # RUN THE AI AUTO-SOLVER BEFORE CLICKING ANYTHING
-                                solve_custom_questions(page)
+                                # 1. Execute the AI Auto-Solver before looking for buttons
+                                solve_custom_questions(page, fname, lname, CANDIDATE_EMAIL, CANDIDATE_PHONE)
                                 time.sleep(1)
                                 
+                                # 2. Check for Submit Button
                                 if universal_click(page, ['submit application', 'submit', 'finish application', 'finish', 'send'], timeout=3):
                                     print("-> Clicked Submit button!")
                                     submitted = True
                                     time.sleep(5)
                                     break
+                                # 3. Check for Next Button
                                 elif universal_click(page, ['next', 'continue'], timeout=3):
                                     print("-> Clicked Next/Continue button.")
+                                    time.sleep(3)
+                                # 4. Fallback checking for dynamic Apply buttons
+                                elif universal_click(page, ['apply'], timeout=3):
+                                    print("-> Clicked generic 'Apply' button inside modal.")
                                     time.sleep(3)
                                 else:
                                     print("-> Stuck on form. Could not find Next or Submit button.")
@@ -238,7 +289,7 @@ def apply_on_dice(page):
                                 print("✅ Application verified and submitted successfully!")
                                 log_application(url, job_role, company, description_text, "Approved & Applied")
                             else:
-                                print("❌ Success screen not detected. Form may have failed or required manual input.")
+                                print("❌ Success screen not detected. Form failed or required manual input.")
                                 log_application(url, job_role, company, description_text, "Approved but Failed")
                             
                         except Exception as apply_err:
