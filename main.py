@@ -5,7 +5,9 @@ from playwright.sync_api import sync_playwright
 from playwright_stealth import stealth_sync
 from azure.data.tables import TableClient
 from brain import evaluate_job
+from resume_builder import generate_tailored_resume
 
+# 1. Pull secure details
 CANDIDATE_NAME = os.getenv("CANDIDATE_NAME", "Vamshi Krishna Boddu")
 CANDIDATE_EMAIL = os.getenv("CANDIDATE_EMAIL", "vamshikrishna852@gmail.com")
 CANDIDATE_PHONE = os.getenv("CANDIDATE_PHONE", "989-954-2212")
@@ -61,74 +63,74 @@ def solve_custom_questions(page, fname, lname, mail, ph):
     """Aggressively auto-fills required fields using React State Bypass"""
     for frame in page.frames:
         try:
-            frame.evaluate('''([fname, lname, mail, ph]) => {
+            frame.evaluate(f'''([fname, lname, mail, ph]) => {{
                 // 1. Dropdowns (React Bypass)
-                document.querySelectorAll('select').forEach(s => {
-                    if (s.options.length > 1 && (!s.value || s.selectedIndex <= 0)) {
+                document.querySelectorAll('select').forEach(s => {{
+                    if (s.options.length > 1 && (!s.value || s.selectedIndex <= 0)) {{
                         const nativeSelectValueSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set : null;
                         const val = s.options[1].value;
-                        if (nativeSelectValueSetter) {
+                        if (nativeSelectValueSetter) {{
                             nativeSelectValueSetter.call(s, val);
-                        } else {
+                        }} else {{
                             s.value = val;
-                        }
-                        s.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                });
+                        }}
+                        s.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+                }});
                 
                 // 2. Radio Buttons / Checkboxes (Visa/Sponsorship Logic)
                 const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
                 const names = [...new Set(radios.map(r => r.name))];
-                names.forEach(name => {
-                    const group = document.querySelectorAll(`input[name="${name}"]`);
+                names.forEach(name => {{
+                    const group = document.querySelectorAll(`input[name="${{name}}"]`);
                     let isAnswered = false;
-                    group.forEach(r => { if (r.checked) isAnswered = true; });
+                    group.forEach(r => {{ if (r.checked) isAnswered = true; }});
                     
-                    if (!isAnswered && group.length > 0) {
+                    if (!isAnswered && group.length > 0) {{
                         let clicked = false;
-                        group.forEach(r => {
+                        group.forEach(r => {{
                             const text = (r.nextElementSibling ? r.nextElementSibling.innerText : '').toLowerCase() + ' ' + (r.parentElement ? r.parentElement.innerText : '').toLowerCase();
                             const val = r.value.toLowerCase();
                             const parentDiv = r.closest('div') || r.parentElement;
                             const parentText = parentDiv.innerText.toLowerCase();
                             
-                            if (text.includes('yes') || val === 'yes' || val === 'y') {
-                                if (!parentText.includes('sponsorship') && !parentText.includes('require visa') && !parentText.includes('clearance')) {
-                                    r.dispatchEvent(new PointerEvent('click', { bubbles: true }));
+                            if (text.includes('yes') || val === 'yes' || val === 'y') {{
+                                if (!parentText.includes('sponsorship') && !parentText.includes('require visa') && !parentText.includes('clearance')) {{
+                                    r.dispatchEvent(new PointerEvent('click', {{ bubbles: true }}));
                                     r.checked = true;
-                                    r.dispatchEvent(new Event('change', { bubbles: true }));
+                                    r.dispatchEvent(new Event('change', {{ bubbles: true }}));
                                     clicked = true;
-                                }
-                            } else if (text.includes('no') || val === 'no' || val === 'n') {
-                                if (parentText.includes('sponsorship') || parentText.includes('require visa') || parentText.includes('clearance')) {
-                                    r.dispatchEvent(new PointerEvent('click', { bubbles: true }));
+                                }}
+                            }} else if (text.includes('no') || val === 'no' || val === 'n') {{
+                                if (parentText.includes('sponsorship') || parentText.includes('require visa') || parentText.includes('clearance')) {{
+                                    r.dispatchEvent(new PointerEvent('click', {{ bubbles: true }}));
                                     r.checked = true;
-                                    r.dispatchEvent(new Event('change', { bubbles: true }));
+                                    r.dispatchEvent(new Event('change', {{ bubbles: true }}));
                                     clicked = true;
-                                }
-                            }
-                        });
-                        if (!clicked) {
-                            group[0].dispatchEvent(new PointerEvent('click', { bubbles: true }));
+                                }}
+                            }}
+                        }});
+                        if (!clicked) {{
+                            group[0].dispatchEvent(new PointerEvent('click', {{ bubbles: true }}));
                             group[0].checked = true;
-                            group[0].dispatchEvent(new Event('change', { bubbles: true }));
-                        }
-                    }
-                });
+                            group[0].dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        }}
+                    }}
+                }});
                 
-                document.querySelectorAll('input[type="checkbox"]').forEach(c => {
-                    if (!c.checked) {
-                        c.dispatchEvent(new PointerEvent('click', { bubbles: true }));
+                document.querySelectorAll('input[type="checkbox"]').forEach(c => {{
+                    if (!c.checked) {{
+                        c.dispatchEvent(new PointerEvent('click', {{ bubbles: true }}));
                         c.checked = true;
-                        c.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                });
+                        c.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+                }});
                 
                 // 3. Text inputs & Contact Fields (REACT VIRTUAL DOM BYPASS)
                 const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set : null;
                 const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set : null;
 
-                document.querySelectorAll('input, textarea').forEach(i => {
+                document.querySelectorAll('input, textarea').forEach(i => {{
                     if (i.value || i.readOnly || i.disabled || window.getComputedStyle(i).visibility === 'hidden') return;
                     if (i.type === 'radio' || i.type === 'checkbox' || i.type === 'submit' || i.type === 'file' || i.type === 'hidden' || i.type === 'button') return;
                     
@@ -137,37 +139,35 @@ def solve_custom_questions(page, fname, lname, mail, ph):
                     const type = (i.type || '').toLowerCase();
                     let fillValue = null;
                     
-                    if (name.includes('first') || placeholder.includes('first')) { fillValue = fname; } 
-                    else if (name.includes('last') || placeholder.includes('last')) { fillValue = lname; } 
-                    else if (name.includes('name') || placeholder.includes('name') || name.includes('signature')) { fillValue = fname + " " + lname; } 
-                    else if (name.includes('email') || placeholder.includes('email') || type === 'email') { fillValue = mail; } 
-                    else if (name.includes('phone') || placeholder.includes('phone') || type === 'tel') { fillValue = ph; } 
-                    else if (name.includes('link') || placeholder.includes('linkedin') || type === 'url') { fillValue = "https://linkedin.com/in/vamshikrishnaboddu"; } 
-                    else if (type === 'number' || name.includes('year') || placeholder.includes('year') || name.includes('exp')) { fillValue = "8"; } 
-                    else if (name.includes('salary') || placeholder.includes('salary') || name.includes('pay') || name.includes('rate') || name.includes('compensation')) { fillValue = "150000"; }
-                    else if (name.includes('location') || placeholder.includes('city') || name.includes('address') || name.includes('state')) { fillValue = "Dallas, TX"; }
-                    else if (name.includes('country') || placeholder.includes('country')) { fillValue = "United States"; }
-                    else if (type === 'text' || type === 'textarea') { fillValue = "Yes"; } 
+                    if (name.includes('first') || placeholder.includes('first')) {{ fillValue = fname; }} 
+                    else if (name.includes('last') || placeholder.includes('last')) {{ fillValue = lname; }} 
+                    else if (name.includes('name') || placeholder.includes('name') || name.includes('signature')) {{ fillValue = fname + " " + lname; }} 
+                    else if (name.includes('email') || placeholder.includes('email') || type === 'email') {{ fillValue = mail; }} 
+                    else if (name.includes('phone') || placeholder.includes('phone') || type === 'tel') {{ fillValue = ph; }} 
+                    else if (name.includes('link') || placeholder.includes('linkedin') || type === 'url') {{ fillValue = "https://linkedin.com/in/vamshikrishnaboddu"; }} 
+                    else if (type === 'number' || name.includes('year') || placeholder.includes('year') || name.includes('exp')) {{ fillValue = "8"; }} 
+                    else if (name.includes('salary') || placeholder.includes('salary') || name.includes('pay') || name.includes('rate') || name.includes('compensation')) {{ fillValue = "150000"; }}
+                    else if (name.includes('location') || placeholder.includes('city') || name.includes('address') || name.includes('state')) {{ fillValue = "Dallas, TX"; }}
+                    else if (name.includes('country') || placeholder.includes('country')) {{ fillValue = "United States"; }}
+                    else if (type === 'text' || type === 'textarea') {{ fillValue = "Yes"; }} 
                     
-                    if (fillValue) {
-                        if (i.tagName === 'TEXTAREA' && nativeTextAreaValueSetter) {
+                    if (fillValue) {{
+                        if (i.tagName === 'TEXTAREA' && nativeTextAreaValueSetter) {{
                             nativeTextAreaValueSetter.call(i, fillValue);
-                        } else if (nativeInputValueSetter) {
+                        }} else if (nativeInputValueSetter) {{
                             nativeInputValueSetter.call(i, fillValue);
-                        } else {
+                        }} else {{
                             i.value = fillValue;
-                        }
-                        // Fire events to force React/Angular to read the new value
-                        i.dispatchEvent(new Event('input', { bubbles: true }));
-                        i.dispatchEvent(new Event('change', { bubbles: true }));
-                        i.dispatchEvent(new Event('blur', { bubbles: true }));
-                    }
-                });
-            }''', [fname, lname, mail, ph])
+                        }}
+                        i.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        i.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        i.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                    }}
+                }});
+            }}''', [fname, lname, mail, ph])
         except: pass
 
 def universal_click(page, keywords, timeout=5):
-    """Finds buttons and INPUT submits across all iframes and triggers a physical hardware click"""
     start = time.time()
     while time.time() - start < timeout:
         for frame in page.frames:
@@ -181,10 +181,8 @@ def universal_click(page, keywords, timeout=5):
                                 let res = pierce(el.shadowRoot);
                                 if (res) found = res;
                             }
-                            // Prevent clicking main page if modal is active
                             if (document.querySelector('seds-modal') && !el.closest('seds-modal') && !window.location.href.includes('iframe')) continue; 
                             
-                            // Check for BUTTON, A, or INPUT type=submit
                             if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button' || (el.tagName === 'INPUT' && (el.type === 'submit' || el.type === 'button'))) {
                                 if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled')) continue;
                                 
@@ -216,31 +214,36 @@ def universal_click(page, keywords, timeout=5):
     return False
 
 def check_success(page):
-    # Give the network request an extra moment to settle
-    time.sleep(4)
+    """Verifies success by checking UI, then reloading the page to confirm with Dice backend"""
+    time.sleep(5) # Let network request settle
     
-    # 1. Broad text search across all iframes
+    # 1. Quick check for success text
     for frame in page.frames:
         try:
             success = frame.evaluate('''() => {
                 const text = document.body.innerText.toLowerCase();
-                return text.includes('application was sent') || 
-                       text.includes('application submitted') || 
-                       text.includes('successfully applied') || 
-                       text.includes('received your application') ||
-                       text.includes("you've applied") || 
-                       text.includes('success');
+                return text.includes('application was sent') || text.includes('application submitted') || 
+                       text.includes('successfully applied') || text.includes('received your application');
             }''')
             if success: return True
         except: continue
         
-    # 2. Actively poll Dice's button state for up to 3 seconds
     try:
-        for _ in range(3):
-            status = page.evaluate("() => { const wc = document.querySelector('apply-button-wc'); return wc ? wc.getAttribute('status') : null; }")
-            if status == 'applied': 
-                return True
-            time.sleep(1)
+        status = page.evaluate("() => { const wc = document.querySelector('apply-button-wc'); return wc ? wc.getAttribute('status') : null; }")
+        if status == 'applied': return True
+    except: pass
+    
+    # 2. Foolproof Verification: Hard Reload
+    print("-> Reloading page to verify application status with Dice backend...")
+    try:
+        page.reload(wait_until='domcontentloaded', timeout=15000)
+        time.sleep(4)
+        
+        status = page.evaluate("() => { const wc = document.querySelector('apply-button-wc'); return wc ? wc.getAttribute('status') : null; }")
+        if status == 'applied': return True
+        
+        is_applied_text = page.evaluate("() => document.body.innerText.includes('Already Applied') || document.body.innerText.includes('Applied on')")
+        if is_applied_text: return True
     except: pass
     
     return False
@@ -286,6 +289,13 @@ def apply_on_dice(page):
                     is_match = evaluate_job(description_text)
                     if is_match:
                         print("OpenAI approved! Initiating application sequence...")
+                        
+                        # --- GENERATE DYNAMIC RESUME HERE ---
+                        try:
+                            dynamic_resume_path = generate_tailored_resume(description_text)
+                        except Exception as e:
+                            print(f"-> ⚠️ Dynamic resume generation failed. Falling back to default. Error: {e}")
+                            dynamic_resume_path = RESUME_PATH
                         try:
                             is_applied = page.evaluate('''() => {
                                 const wc = document.querySelector('apply-button-wc');
@@ -313,15 +323,14 @@ def apply_on_dice(page):
                                     try:
                                         file_input = frame.locator('input[type="file"]').first
                                         if file_input.is_visible(timeout=500):
-                                            file_input.set_input_files(RESUME_PATH)
-                                            print("-> Forcibly uploaded resume to iframe.")
+                                            # SWAP THIS LINE TO USE THE DYNAMIC RESUME
+                                            file_input.set_input_files(dynamic_resume_path) 
+                                            print("-> Forcibly uploaded TAILORED resume to iframe.")
                                     except: pass
 
-                                # 2. Run React Auto-Solver
                                 solve_custom_questions(page, fname, lname, CANDIDATE_EMAIL, CANDIDATE_PHONE)
                                 time.sleep(1)
                                 
-                                # 3. Form Navigation
                                 if universal_click(page, ['submit application', 'submit', 'finish application', 'finish', 'send'], timeout=3):
                                     print("-> Clicked Submit button!")
                                     submitted = True
@@ -335,7 +344,6 @@ def apply_on_dice(page):
                                     time.sleep(3)
                                 else:
                                     print("-> Stuck on form. Could not find Next or Submit button.")
-                                    # Form dump for debugging
                                     for frame in page.frames:
                                         try:
                                             chunk = frame.evaluate("() => document.body.innerText.substring(0, 300)")
