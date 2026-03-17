@@ -216,19 +216,33 @@ def universal_click(page, keywords, timeout=5):
     return False
 
 def check_success(page):
+    # Give the network request an extra moment to settle
+    time.sleep(4)
+    
+    # 1. Broad text search across all iframes
     for frame in page.frames:
         try:
             success = frame.evaluate('''() => {
                 const text = document.body.innerText.toLowerCase();
-                return text.includes('application was sent') || text.includes('application submitted') || 
-                       text.includes('successfully applied') || text.includes('received your application');
+                return text.includes('application was sent') || 
+                       text.includes('application submitted') || 
+                       text.includes('successfully applied') || 
+                       text.includes('received your application') ||
+                       text.includes("you've applied") || 
+                       text.includes('success');
             }''')
             if success: return True
         except: continue
+        
+    # 2. Actively poll Dice's button state for up to 3 seconds
     try:
-        status = page.evaluate("() => { const wc = document.querySelector('apply-button-wc'); return wc ? wc.getAttribute('status') : null; }")
-        if status == 'applied': return True
+        for _ in range(3):
+            status = page.evaluate("() => { const wc = document.querySelector('apply-button-wc'); return wc ? wc.getAttribute('status') : null; }")
+            if status == 'applied': 
+                return True
+            time.sleep(1)
     except: pass
+    
     return False
 
 def apply_on_dice(page):
