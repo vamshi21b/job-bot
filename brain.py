@@ -1,45 +1,51 @@
 import os
 from openai import OpenAI
 
-# Initialize the client securely
+# Initialize the OpenAI client using your Azure Environment Variable
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def evaluate_job(description_text):
+# Your core foundation. The AI compares the Job Description against this.
+CANDIDATE_SUMMARY = """
+Role: Technology Architect / DevOps Engineer / Cloud Infrastructure Engineer / SRE
+Experience: 8+ years
+Key Skills: Microsoft Azure, AWS (Amazon Web Services), CI/CD pipelines, Infrastructure as Code (Terraform, Ansible), Containerization (Docker, Kubernetes), Cloud Migrations, System Architecture, Automation.
+Education: Degree in Aeronautical Engineering
+"""
+
+def evaluate_job(job_description):
     """
-    Passes the job description to OpenAI. 
-    Returns True if it's a match, False if we should skip it.
+    Evaluates the job description against a 60-70% match threshold.
     """
+    prompt = f"""
+    You are an expert technical AI recruiter. Your job is to determine if a candidate should apply to a specific job opening.
+
+    CANDIDATE BASE PROFILE:
+    {CANDIDATE_SUMMARY}
+
+    EVALUATION CRITERIA (The "60% Rule"):
+    1. You must APPROVE the job if the candidate's base profile matches at least 60% to 70% of the core technical requirements.
+    2. Do not look for a perfect 100% match. The candidate has an AI engine that will dynamically rewrite their resume to highlight the missing 30% using ATS optimization and JD-specific keywords. Be lenient.
+    3. Acceptable roles include: DevOps Engineer, Site Reliability Engineer (SRE), Cloud Engineer, Cloud Architect, Technology Architect, Infrastructure Engineer, Platform Engineer, or Backend Automation.
+    4. ONLY REJECT roles if they are completely unrelated to the candidate's ecosystem (e.g., Pure Sales, HR, Pure Frontend React/UI Developer, pure Data Scientist, or Helpdesk Support).
     
-    system_prompt = """
-    You are an expert technical recruiter evaluating job descriptions for a Senior DevOps Engineer and Technology Architect.
+    JOB DESCRIPTION:
+    {job_description[:4000]}
     
-    Your candidate's core stack is: Azure, AWS, Site Reliability Engineering (SRE), Terraform, and Ansible.
-    
-    Read the provided job description and reply with EXACTLY 'YES' or 'NO' based on these strict rules:
-    
-    1. MATCHING TECH: The role MUST heavily feature either Azure or AWS, alongside IaC tools like Terraform or Ansible.
-    2. SENIORITY: Reject junior, entry-level, or basic sysadmin roles. It must be Architect, Lead, or Senior DevOps level.
-    3. EXCLUSIONS: Reply 'NO' if the job requires heavy software development (e.g., full-stack Java/C# coding) rather than infrastructure and pipeline architecture.
-    4. CLEARANCES: Reply 'NO' if the job explicitly requires an active Top Secret or DoD security clearance.
-    
-    If the job meets the criteria, reply YES. Otherwise, reply NO. Do not explain your reasoning.
+    If the job is a >= 60% match and worth generating a tailored resume for, respond with exactly and only the word: True
+    If the job is completely irrelevant, respond with exactly and only the word: False
     """
 
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo", # or gpt-4o-mini for better reasoning at a low cost
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Job Description:\n{description_text}"}
-            ],
-            temperature=0.1, # Keep it deterministic and strict
+            model="gpt-4o", # Using the flagship model for best reasoning
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1, # Keep it strictly logical
             max_tokens=5
         )
         
-        # Clean up the response and check if the AI said YES
-        decision = response.choices[0].message.content.strip().upper()
-        return "YES" in decision
+        result = response.choices[0].message.content.strip().lower()
+        return 'true' in result
         
     except Exception as e:
-        print(f"OpenAI API Error: {e}")
+        print(f"Error evaluating job: {e}")
         return False
