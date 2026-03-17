@@ -61,86 +61,109 @@ def solve_custom_questions(page, fname, lname, mail, ph):
     """Aggressively auto-fills required fields using React State Bypass"""
     for frame in page.frames:
         try:
-            frame.evaluate(f'''([fname, lname, mail, ph]) => {{
-                // 1. Dropdowns
-                document.querySelectorAll('select').forEach(s => {{
-                    if (s.options.length > 1 && s.selectedIndex <= 0) {{
-                        s.selectedIndex = 1;
-                        s.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    }}
-                }});
+            frame.evaluate('''([fname, lname, mail, ph]) => {
+                // 1. Dropdowns (React Bypass)
+                document.querySelectorAll('select').forEach(s => {
+                    if (s.options.length > 1 && (!s.value || s.selectedIndex <= 0)) {
+                        const nativeSelectValueSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set : null;
+                        const val = s.options[1].value;
+                        if (nativeSelectValueSetter) {
+                            nativeSelectValueSetter.call(s, val);
+                        } else {
+                            s.value = val;
+                        }
+                        s.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                });
                 
                 // 2. Radio Buttons / Checkboxes (Visa/Sponsorship Logic)
                 const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
                 const names = [...new Set(radios.map(r => r.name))];
-                names.forEach(name => {{
-                    const group = document.querySelectorAll(`input[name="${{name}}"]`);
+                names.forEach(name => {
+                    const group = document.querySelectorAll(`input[name="${name}"]`);
                     let isAnswered = false;
-                    group.forEach(r => {{ if (r.checked) isAnswered = true; }});
+                    group.forEach(r => { if (r.checked) isAnswered = true; });
                     
-                    if (!isAnswered) {{
+                    if (!isAnswered && group.length > 0) {
                         let clicked = false;
-                        group.forEach(r => {{
-                            const text = (r.nextElementSibling ? r.nextElementSibling.innerText : '').toLowerCase();
+                        group.forEach(r => {
+                            const text = (r.nextElementSibling ? r.nextElementSibling.innerText : '').toLowerCase() + ' ' + (r.parentElement ? r.parentElement.innerText : '').toLowerCase();
                             const val = r.value.toLowerCase();
-                            const parentText = r.parentElement.parentElement.innerText.toLowerCase();
+                            const parentDiv = r.closest('div') || r.parentElement;
+                            const parentText = parentDiv.innerText.toLowerCase();
                             
-                            if (text.includes('yes') || val.includes('yes') || text === 'y') {{
-                                if (!parentText.includes('sponsorship') && !parentText.includes('require visa')) {{
-                                    r.click(); clicked = true;
-                                }}
-                            }} else if (text.includes('no') || val.includes('no') || text === 'n') {{
-                                if (parentText.includes('sponsorship') || parentText.includes('require visa')) {{
-                                    r.click(); clicked = true;
-                                }}
-                            }}
-                        }});
-                        if (!clicked && group.length > 0) group[0].click(); // Fallback
-                    }}
-                }});
+                            if (text.includes('yes') || val === 'yes' || val === 'y') {
+                                if (!parentText.includes('sponsorship') && !parentText.includes('require visa') && !parentText.includes('clearance')) {
+                                    r.dispatchEvent(new PointerEvent('click', { bubbles: true }));
+                                    r.checked = true;
+                                    r.dispatchEvent(new Event('change', { bubbles: true }));
+                                    clicked = true;
+                                }
+                            } else if (text.includes('no') || val === 'no' || val === 'n') {
+                                if (parentText.includes('sponsorship') || parentText.includes('require visa') || parentText.includes('clearance')) {
+                                    r.dispatchEvent(new PointerEvent('click', { bubbles: true }));
+                                    r.checked = true;
+                                    r.dispatchEvent(new Event('change', { bubbles: true }));
+                                    clicked = true;
+                                }
+                            }
+                        });
+                        if (!clicked) {
+                            group[0].dispatchEvent(new PointerEvent('click', { bubbles: true }));
+                            group[0].checked = true;
+                            group[0].dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }
+                });
                 
-                document.querySelectorAll('input[type="checkbox"]').forEach(c => {{
-                    if (!c.checked) c.click();
-                }});
+                document.querySelectorAll('input[type="checkbox"]').forEach(c => {
+                    if (!c.checked) {
+                        c.dispatchEvent(new PointerEvent('click', { bubbles: true }));
+                        c.checked = true;
+                        c.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                });
                 
                 // 3. Text inputs & Contact Fields (REACT VIRTUAL DOM BYPASS)
                 const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set : null;
                 const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set : null;
 
-                document.querySelectorAll('input, textarea').forEach(i => {{
+                document.querySelectorAll('input, textarea').forEach(i => {
                     if (i.value || i.readOnly || i.disabled || window.getComputedStyle(i).visibility === 'hidden') return;
-                    if (i.type === 'radio' || i.type === 'checkbox' || i.type === 'submit' || i.type === 'file' || i.type === 'hidden') return;
+                    if (i.type === 'radio' || i.type === 'checkbox' || i.type === 'submit' || i.type === 'file' || i.type === 'hidden' || i.type === 'button') return;
                     
                     const name = (i.name || '').toLowerCase();
                     const placeholder = (i.placeholder || '').toLowerCase();
                     const type = (i.type || '').toLowerCase();
                     let fillValue = null;
                     
-                    if (name.includes('first') || placeholder.includes('first')) {{ fillValue = fname; }} 
-                    else if (name.includes('last') || placeholder.includes('last')) {{ fillValue = lname; }} 
-                    else if (name.includes('email') || placeholder.includes('email') || type === 'email') {{ fillValue = mail; }} 
-                    else if (name.includes('phone') || placeholder.includes('phone') || type === 'tel') {{ fillValue = ph; }} 
-                    else if (name.includes('link') || placeholder.includes('linkedin')) {{ fillValue = "https://linkedin.com/in/vamshikrishnaboddu"; }} 
-                    else if (type === 'number' || name.includes('year') || placeholder.includes('year') || name.includes('exp')) {{ fillValue = "8"; }} 
-                    else if (name.includes('salary') || placeholder.includes('salary') || name.includes('pay') || name.includes('rate')) {{ fillValue = "150000"; }}
-                    else if (name.includes('location') || placeholder.includes('city') || name.includes('address')) {{ fillValue = "Dallas, TX"; }}
-                    else if (type === 'text' || type === 'textarea') {{ fillValue = "Yes"; }} 
+                    if (name.includes('first') || placeholder.includes('first')) { fillValue = fname; } 
+                    else if (name.includes('last') || placeholder.includes('last')) { fillValue = lname; } 
+                    else if (name.includes('name') || placeholder.includes('name') || name.includes('signature')) { fillValue = fname + " " + lname; } 
+                    else if (name.includes('email') || placeholder.includes('email') || type === 'email') { fillValue = mail; } 
+                    else if (name.includes('phone') || placeholder.includes('phone') || type === 'tel') { fillValue = ph; } 
+                    else if (name.includes('link') || placeholder.includes('linkedin') || type === 'url') { fillValue = "https://linkedin.com/in/vamshikrishnaboddu"; } 
+                    else if (type === 'number' || name.includes('year') || placeholder.includes('year') || name.includes('exp')) { fillValue = "8"; } 
+                    else if (name.includes('salary') || placeholder.includes('salary') || name.includes('pay') || name.includes('rate') || name.includes('compensation')) { fillValue = "150000"; }
+                    else if (name.includes('location') || placeholder.includes('city') || name.includes('address') || name.includes('state')) { fillValue = "Dallas, TX"; }
+                    else if (name.includes('country') || placeholder.includes('country')) { fillValue = "United States"; }
+                    else if (type === 'text' || type === 'textarea') { fillValue = "Yes"; } 
                     
-                    if (fillValue) {{
-                        if (i.tagName === 'TEXTAREA' && nativeTextAreaValueSetter) {{
+                    if (fillValue) {
+                        if (i.tagName === 'TEXTAREA' && nativeTextAreaValueSetter) {
                             nativeTextAreaValueSetter.call(i, fillValue);
-                        }} else if (nativeInputValueSetter) {{
+                        } else if (nativeInputValueSetter) {
                             nativeInputValueSetter.call(i, fillValue);
-                        }} else {{
+                        } else {
                             i.value = fillValue;
-                        }}
+                        }
                         // Fire events to force React/Angular to read the new value
-                        i.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        i.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        i.dispatchEvent(new Event('blur', {{ bubbles: true }}));
-                    }}
-                }});
-            }}''', [fname, lname, mail, ph])
+                        i.dispatchEvent(new Event('input', { bubbles: true }));
+                        i.dispatchEvent(new Event('change', { bubbles: true }));
+                        i.dispatchEvent(new Event('blur', { bubbles: true }));
+                    }
+                });
+            }''', [fname, lname, mail, ph])
         except: pass
 
 def universal_click(page, keywords, timeout=5):
@@ -267,16 +290,30 @@ def apply_on_dice(page):
                             fname = name_parts[0]
                             lname = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
 
-                            for step in range(7):
+                            submitted = False
+                            for step in range(8):
                                 print(f"-> Form Step {step+1}...")
+                                
+                                # 1. Check for Mandatory Resume Upload inside isolated iframes
+                                for frame in page.frames:
+                                    try:
+                                        file_input = frame.locator('input[type="file"]').first
+                                        if file_input.is_visible(timeout=500):
+                                            file_input.set_input_files(RESUME_PATH)
+                                            print("-> Forcibly uploaded resume to iframe.")
+                                    except: pass
+
+                                # 2. Run React Auto-Solver
                                 solve_custom_questions(page, fname, lname, CANDIDATE_EMAIL, CANDIDATE_PHONE)
                                 time.sleep(1)
                                 
+                                # 3. Form Navigation
                                 if universal_click(page, ['submit application', 'submit', 'finish application', 'finish', 'send'], timeout=3):
                                     print("-> Clicked Submit button!")
+                                    submitted = True
                                     time.sleep(5)
                                     break
-                                elif universal_click(page, ['next', 'continue'], timeout=3):
+                                elif universal_click(page, ['next', 'continue', 'skip'], timeout=3):
                                     print("-> Clicked Next/Continue button.")
                                     time.sleep(3)
                                 elif universal_click(page, ['apply'], timeout=3):
@@ -284,6 +321,12 @@ def apply_on_dice(page):
                                     time.sleep(3)
                                 else:
                                     print("-> Stuck on form. Could not find Next or Submit button.")
+                                    # Form dump for debugging
+                                    for frame in page.frames:
+                                        try:
+                                            chunk = frame.evaluate("() => document.body.innerText.substring(0, 300)")
+                                            if chunk.strip(): print(f"--- Screen Text ---\n{chunk.replace(chr(10), ' ')}")
+                                        except: pass
                                     break
                                         
                             if check_success(page):
