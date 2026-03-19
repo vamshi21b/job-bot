@@ -27,9 +27,9 @@ def export_to_csv():
             return
 
         print(f"Found {len(entities)} job records. Exporting to {OUTPUT_FILE}...")
-        
-        # ADDED 'Status' to the Excel columns
-        fieldnames = ["DateLogged", "Status", "JobRole", "Company", "Location", "JobUrl"]
+
+        # ADDED 'ResumeUrl' to the Excel columns
+        fieldnames = ["DateLogged", "Status", "JobRole", "Company", "Location", "JobUrl", "ResumeUrl"]
         
         with open(OUTPUT_FILE, mode='w', newline='', encoding='utf-8') as file:
             writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction='ignore')

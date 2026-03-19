@@ -4,27 +4,49 @@ import uuid
 from playwright.sync_api import sync_playwright
 from playwright_stealth import stealth_sync
 from azure.data.tables import TableClient
+from azure.storage.blob import BlobServiceClient
 from brain import evaluate_job
 from resume_builder import generate_tailored_resume
 
-# 1. Pull secure details
+# --- 1. SECURE CREDENTIALS ---
 CANDIDATE_NAME = os.getenv("CANDIDATE_NAME", "Vamshi Krishna Boddu")
 CANDIDATE_EMAIL = os.getenv("CANDIDATE_EMAIL", "vamshikrishna852@gmail.com")
 CANDIDATE_PHONE = os.getenv("CANDIDATE_PHONE", "989-954-2212")
 STORAGE_CONN_STR = os.getenv("STORAGE_CONN_STR")
-
 DICE_USERNAME = os.getenv("DICE_USERNAME") 
 DICE_PASSWORD = os.getenv("DICE_PASSWORD") 
-RESUME_PATH = "/app/resume.pdf"
+RESUME_PATH = "/app/resume.pdf" # Default fallback resume
 
+# --- 2. AZURE CONNECTIONS ---
 table_client = None
+blob_service_client = None
+
 if STORAGE_CONN_STR:
     try:
         table_client = TableClient.from_connection_string(conn_str=STORAGE_CONN_STR, table_name="AppliedJobs")
-        print("Successfully connected to Azure Table Storage.")
-    except: pass
+        blob_service_client = BlobServiceClient.from_connection_string(STORAGE_CONN_STR)
+        container_client = blob_service_client.get_container_client("resumes")
+        if not container_client.exists():
+            container_client.create_container(public_access="blob") 
+        print("Successfully connected to Azure Table and Blob Storage.")
+    except Exception as e:
+        print(f"Warning: Could not connect to Azure Storage. Error: {e}")
 
-def log_application(url, job_role, company, description, status):
+def upload_resume_to_blob(pdf_path):
+    """Uploads the tailored PDF to Azure and returns a clickable public URL."""
+    if not blob_service_client or not os.path.exists(pdf_path):
+        return "No Resume Uploaded"
+    try:
+        blob_name = os.path.basename(pdf_path)
+        blob_client = blob_service_client.get_blob_client(container="resumes", blob=blob_name)
+        with open(pdf_path, "rb") as data:
+            blob_client.upload_blob(data, overwrite=True)
+        return blob_client.url
+    except Exception as e:
+        print(f"Failed to upload resume to blob: {e}")
+        return "Upload Failed"
+
+def log_application(url, job_role, company, description, status, resume_url="N/A"):
     if not table_client: return
     try:
         safe_desc = description[:30000] if description else "No desc"
@@ -34,12 +56,14 @@ def log_application(url, job_role, company, description, status):
             "PartitionKey": "Dice", "RowKey": str(uuid.uuid4()),
             "JobUrl": url, "JobRole": job_role, "Company": company,
             "Location": "Remote/Dallas", "Description": safe_desc,
-            "Status": status, "DateLogged": time.strftime("%Y-%m-%d %H:%M:%S")
+            "Status": status, "DateLogged": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "ResumeUrl": resume_url
         }
         table_client.create_entity(entity=entity)
         print(f"--> Logged to DB: [{status}] | {job_role} at {company}")
     except: pass
 
+# --- 3. CORE AUTOMATION FUNCTIONS ---
 def login_to_dice(page):
     if not DICE_USERNAME or not DICE_PASSWORD: return
     print("\n--- 🔐 Authenticating with Dice ---")
@@ -168,6 +192,7 @@ def solve_custom_questions(page, fname, lname, mail, ph):
         except: pass
 
 def universal_click(page, keywords, timeout=5):
+    """Finds buttons and INPUT submits across all iframes and triggers a physical hardware click"""
     start = time.time()
     while time.time() - start < timeout:
         for frame in page.frames:
@@ -215,9 +240,7 @@ def universal_click(page, keywords, timeout=5):
 
 def check_success(page):
     """Verifies success by checking UI, then reloading the page to confirm with Dice backend"""
-    time.sleep(5) # Let network request settle
-    
-    # 1. Quick check for success text
+    time.sleep(5) 
     for frame in page.frames:
         try:
             success = frame.evaluate('''() => {
@@ -233,21 +256,19 @@ def check_success(page):
         if status == 'applied': return True
     except: pass
     
-    # 2. Foolproof Verification: Hard Reload
     print("-> Reloading page to verify application status with Dice backend...")
     try:
         page.reload(wait_until='domcontentloaded', timeout=15000)
         time.sleep(4)
-        
         status = page.evaluate("() => { const wc = document.querySelector('apply-button-wc'); return wc ? wc.getAttribute('status') : null; }")
         if status == 'applied': return True
-        
         is_applied_text = page.evaluate("() => document.body.innerText.includes('Already Applied') || document.body.innerText.includes('Applied on')")
         if is_applied_text: return True
     except: pass
     
     return False
 
+# --- 4. MAIN PIPELINE ---
 def apply_on_dice(page):
     print("--- Starting Dice Job Search ---")
     search_urls = [
@@ -277,8 +298,7 @@ def apply_on_dice(page):
                     try: job_role = page.locator('h1.jobTitle, h1[data-cy="jobTitle"]').first.inner_text(timeout=3000)
                     except: job_role = page.title().replace('| Dice.com', '').split(' - ')[0].strip()
                     
-                    try: 
-                        company = page.locator('a[data-cy="companyNameLink"]').first.inner_text(timeout=3000)
+                    try: company = page.locator('a[data-cy="companyNameLink"]').first.inner_text(timeout=3000)
                     except: 
                         try: company = page.title().replace('| Dice.com', '').split(' - ')[1].strip()
                         except: company = "Unknown Company"
@@ -290,12 +310,16 @@ def apply_on_dice(page):
                     if is_match:
                         print("OpenAI approved! Initiating application sequence...")
                         
-                        # --- GENERATE DYNAMIC RESUME HERE ---
+                        # --- GENERATE DYNAMIC RESUME ---
+                        resume_link = "N/A"
                         try:
                             dynamic_resume_path = generate_tailored_resume(description_text)
+                            resume_link = upload_resume_to_blob(dynamic_resume_path)
+                            print(f"-> Saved resume to cloud: {resume_link}")
                         except Exception as e:
                             print(f"-> ⚠️ Dynamic resume generation failed. Falling back to default. Error: {e}")
                             dynamic_resume_path = RESUME_PATH
+
                         try:
                             is_applied = page.evaluate('''() => {
                                 const wc = document.querySelector('apply-button-wc');
@@ -303,7 +327,7 @@ def apply_on_dice(page):
                             }''')
                             if is_applied:
                                 print("-> ⚠️ Already applied to this job! Skipping.")
-                                log_application(url, job_role, company, description_text, "Already Applied")
+                                log_application(url, job_role, company, description_text, "Already Applied", resume_link)
                                 continue
 
                             print("-> Clicking Apply Button to open modal...")
@@ -318,13 +342,12 @@ def apply_on_dice(page):
                             for step in range(8):
                                 print(f"-> Form Step {step+1}...")
                                 
-                                # 1. Check for Mandatory Resume Upload inside isolated iframes
+                                # Inject custom PDF if iframe demands a file upload
                                 for frame in page.frames:
                                     try:
                                         file_input = frame.locator('input[type="file"]').first
                                         if file_input.is_visible(timeout=500):
-                                            # SWAP THIS LINE TO USE THE DYNAMIC RESUME
-                                            file_input.set_input_files(dynamic_resume_path) 
+                                            file_input.set_input_files(dynamic_resume_path)
                                             print("-> Forcibly uploaded TAILORED resume to iframe.")
                                     except: pass
 
@@ -344,25 +367,20 @@ def apply_on_dice(page):
                                     time.sleep(3)
                                 else:
                                     print("-> Stuck on form. Could not find Next or Submit button.")
-                                    for frame in page.frames:
-                                        try:
-                                            chunk = frame.evaluate("() => document.body.innerText.substring(0, 300)")
-                                            if chunk.strip(): print(f"--- Screen Text ---\n{chunk.replace(chr(10), ' ')}")
-                                        except: pass
                                     break
                                         
                             if check_success(page):
                                 print("✅ Application verified and submitted successfully!")
-                                log_application(url, job_role, company, description_text, "Approved & Applied")
+                                log_application(url, job_role, company, description_text, "Approved & Applied", resume_link)
                             else:
                                 print("❌ Success screen not detected. Form failed or required manual input.")
-                                log_application(url, job_role, company, description_text, "Approved but Failed")
+                                log_application(url, job_role, company, description_text, "Approved but Failed", resume_link)
                             
                         except Exception as apply_err:
-                            log_application(url, job_role, company, description_text, "Approved but Failed")
+                            log_application(url, job_role, company, description_text, "Approved but Failed", resume_link)
                     else:
                         print("OpenAI rejected this role. Skipping.")
-                        log_application(url, job_role, company, description_text, "Rejected by AI")
+                        log_application(url, job_role, company, description_text, "Rejected by AI", "N/A")
                 except Exception as inner_e:
                     print(f"Skipping. Error: {inner_e}")
         except Exception as e:
