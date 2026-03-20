@@ -1,6 +1,5 @@
 import os
-import uuid
-import markdown
+import re
 import pdfkit
 from openai import OpenAI
 
@@ -129,23 +128,29 @@ Responsibilities:
 
 Education details:
 
-	Bachelor’s – VNR Vignana Jyothi Institute of Engineering and Technology – Information Technology – 2018
-	Master’s – Central Michigan University – Information Systems - 2021
-
+	Bachelor’s – VNR Vignana Jyothi Institute of Engineering and Technology – Information Technology
+	Master’s – Central Michigan University – Information Systems
 """
 
-def generate_tailored_resume(job_description):
-    print("-> 🧠 AI is crafting a comprehensive, multi-page bespoke resume...")
+def generate_tailored_resume(job_description, job_role, company_name):
+    print(f"-> 🧠 AI is crafting a bespoke resume for {company_name}...")
     
+    # Sanitize company name for file saving
+    safe_comp = "".join(x for x in company_name if x.isalnum() or x in " -_").strip().replace(" ", "_")
+    if not safe_comp: safe_comp = "Unknown_Company"
+
     prompt = f"""
-    You are an elite executive ATS resume optimizer. 
-    I will provide my comprehensive Master Profile, and the Job Description for a role I am targeting.
+    You are an elite executive ATS resume optimizer.
+    Target Role: {job_role} at {company_name}
     
-    Your task:
-    1. Maintain the FULL LENGTH and comprehensive detail of the original Master Profile. DO NOT truncate, summarize, or cut sections to fit 1 page. The final output must be as large as the input.
-    2. Seamlessly weave exact keywords and technical requirements from the Job Description into the Professional Summary and Experience bullet points.
-    3. Add 2 to 3 highly specific, ATS-optimized bullet points relevant to the job description, ensuring they logically align with my existing experience. Do not hallucinate core skills I do not possess.
-    4. Format the output STRICTLY in clean Markdown (use # for Name, ## for sections, and bullet points). Do not include any conversational filler.
+    Task:
+    1. Maintain the FULL comprehensive detail and length of my Master Profile. Do not delete historical jobs.
+    2. AGGRESSIVELY TAILOR the resume for the Target Role:
+       - Rewrite the "Professional Summary" to directly address the core needs of this specific job description.
+       - Reorder the "Skills" or "Core Competencies" list so the exact tools mentioned in the Job Description appear first.
+       - Rewrite the top 3-5 bullet points in my most recent experience to directly mirror the responsibilities in the Job Description.
+       - BOLD the specific keywords and technologies in the bullet points that match the Job Description to optimize for ATS scanners.
+    3. OUTPUT FORMAT: You must output STRICTLY valid HTML. Do not use Markdown. Use <h2> for sections, <p> for text, and <ul><li> for bullet points. Do NOT wrap the response in ```html blocks, just output the raw HTML code.
     
     MASTER PROFILE:
     {MASTER_PROFILE}
@@ -157,45 +162,52 @@ def generate_tailored_resume(job_description):
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.3
+        temperature=0.4 # Slightly higher creativity for better rewriting
     )
     
-    resume_markdown = response.choices[0].message.content
-    resume_markdown = resume_markdown.replace("```markdown", "").replace("```", "").strip()
+    # Clean the output in case the AI wraps it in code blocks
+    html_content = response.choices[0].message.content
+    html_content = html_content.replace("```html", "").replace("```", "").strip()
     
-    html_content = markdown.markdown(resume_markdown)
-    
-    # Updated CSS for multi-page rendering
+    # CSS wrapper for perfect PDF rendering
     styled_html = f"""
     <html>
     <head>
         <style>
-            body {{ font-family: 'Arial', sans-serif; font-size: 12px; line-height: 1.5; color: #333; margin: 40px; }}
-            h1 {{ font-size: 22px; color: #000; text-transform: uppercase; margin-bottom: 5px; text-align: center; }}
-            h2 {{ font-size: 16px; border-bottom: 1px solid #000; padding-bottom: 2px; margin-top: 20px; color: #222; page-break-after: avoid; }}
-            p {{ margin-bottom: 8px; }}
-            ul {{ margin-top: 5px; padding-left: 20px; }}
-            li {{ margin-bottom: 6px; }}
+            body {{ font-family: 'Arial', sans-serif; font-size: 11px; line-height: 1.4; color: #111; margin: 40px; }}
+            h1 {{ font-size: 20px; color: #000; text-transform: uppercase; margin-bottom: 5px; text-align: center; }}
+            h2 {{ font-size: 14px; border-bottom: 1px solid #000; padding-bottom: 2px; margin-top: 18px; color: #000; text-transform: uppercase; page-break-after: avoid; }}
+            p {{ margin-bottom: 6px; }}
+            ul {{ margin-top: 4px; padding-left: 20px; margin-bottom: 8px; }}
+            li {{ margin-bottom: 4px; text-align: justify; }}
+            b {{ color: #000; }}
+            .header-text {{ text-align: center; font-size: 11px; margin-bottom: 15px; }}
         </style>
     </head>
     <body>
+        <div class="header-text">
+            <h1>Vamshi Krishna Boddu</h1>
+            Frisco, TX | vamshikrishna852@gmail.com | 989-954-2212 | [linkedin.com/in/vamshikrishnaboddu](https://linkedin.com/in/vamshikrishnaboddu)
+        </div>
         {html_content}
     </body>
     </html>
     """
     
-    pdf_filename = f"/tmp/tailored_resume_{uuid.uuid4().hex[:8]}.pdf"
+    # Set the exact file name you requested
+    pdf_filename = f"/tmp/Vamshi_krishna_boddu_{safe_comp}.pdf"
     
     options = {
         'page-size': 'Letter',
-        'margin-top': '0.75in',
-        'margin-right': '0.75in',
-        'margin-bottom': '0.75in',
-        'margin-left': '0.75in',
+        'margin-top': '0.5in',
+        'margin-right': '0.5in',
+        'margin-bottom': '0.5in',
+        'margin-left': '0.5in',
         'encoding': "UTF-8",
         'quiet': ''
     }
     
+    # Generate the PDF
     pdfkit.from_string(styled_html, pdf_filename, options=options)
     print(f"-> 📄 Tailored PDF generated: {pdf_filename}")
     
