@@ -1,12 +1,11 @@
 import os
-import re
+import uuid
 import pdfkit
 from openai import OpenAI
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# PASTE YOUR ENTIRE 4-PAGE MASTER RESUME HERE.
-# Make sure Visam Technologies and all specific skill formats are included exactly as you want them!
+# PASTE YOUR ENTIRE 4-PAGE MASTER RESUME HERE
 MASTER_PROFILE = """
 Vamshi krishna Boddu
 Location: Frisco, TX
@@ -134,26 +133,25 @@ Education details:
 """
 
 def generate_tailored_resume(job_description, job_role, company_name):
-    print(f"-> 🧠 AI is crafting a bespoke resume for {company_name} (Strict Preservation Mode)...")
+    print(f"-> 🧠 AI is HTML-Formatting the comprehensive resume for {company_name}...")
     
     # Sanitize company name for file saving
     safe_comp = "".join(x for x in company_name if x.isalnum() or x in " -_").strip().replace(" ", "_")
     if not safe_comp: safe_comp = "Unknown_Company"
 
     prompt = f"""
-    You are an elite ATS Resume Generator. Your core directive is STRICT PRESERVATION with SURGICAL ADDITIONS.
-    
+    You are a strict Data Formatter and HTML Converter. You are NOT an editor. Do NOT summarize. Do NOT condense.
+
     Target Role: {job_role} at {company_name}
     
-    CRITICAL RULES:
-    1. ZERO DELETION (MANDATORY): You MUST include EVERY SINGLE job experience, including older roles like "Visam Technologies". You MUST include EVERY SINGLE bullet point from the Master Profile. If you delete, summarize, or shrink any historical experience, the ATS will fail the candidate.
-    2. NO SUMMARIZATION: Do not condense the Professional Summary or the experience bullet points. Keep the exact original text and length. 
-    3. SKILLS PRESERVATION: Keep the EXACT layout, grouping, and format of the original Skills section. You may ADD new skills required by the JD to the respective categories, but do NOT remove or reformat the existing ones.
-    4. SURGICAL ADDITION (How to Tailor): To tailor the resume, you may ADD 2-3 new, highly relevant bullet points to the most recent roles that directly address the Job Description's requirements. You may also elegantly weave keywords into the existing Professional Summary.
-    5. KEYWORD OPTIMIZATION: BOLD the exact keywords and technologies in the bullet points that match the Job Description to optimize for ATS scanners.
+    CRITICAL INSTRUCTIONS:
+    1. COPY AND PASTE EVERYTHING: You must output the ENTIRE content of my Master Profile. Do not skip, shrink, or summarize any job experience (You MUST include Visam Technologies). Do not condense the Professional Summary.
+    2. STRICT LIST FORMATTING (NO PARAGRAPHS): For the Professional Experience section, EVERY SINGLE bullet point from the Master Profile MUST be wrapped in its own <li> tag within a <ul> block. Do NOT merge bullet points into <p> paragraphs. 
+    3. SKILLS PRESERVATION: Copy the Technical Skills section exactly as provided. Do not reformat it into a paragraph.
+    4. KEYWORD INJECTION: You are allowed to surgically ADD 2 or 3 new <li> bullet points to the most recent roles to match the Job Description. BOLD (<b>) keywords in the text that match the Job Description.
     
-    OUTPUT FORMAT: 
-    You must output STRICTLY valid HTML. Do not use Markdown. Use <h2> for sections, <p> for text, and <ul><li> for bullet points. Do NOT wrap the response in ```html blocks, just output the raw HTML code.
+    OUTPUT FORMAT:
+    Output STRICTLY raw HTML. Use <h2> for company/role titles, <p> for dates/locations, and <ul><li> for EVERY SINGLE responsibilities bullet point. Do NOT output markdown or wrap in ```html blocks.
     
     MASTER PROFILE:
     {MASTER_PROFILE}
@@ -165,14 +163,13 @@ def generate_tailored_resume(job_description, job_role, company_name):
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.1 # Lowered to 0.1 to force strict adherence to the copy-paste preservation rules
+        temperature=0.0 # ZERO creativity. Forces pure copy-paste HTML conversion.
     )
     
-    # Clean the output in case the AI wraps it in code blocks
     html_content = response.choices[0].message.content
     html_content = html_content.replace("```html", "").replace("```", "").strip()
     
-    # CSS wrapper for perfect PDF rendering (Adjusted for multi-page length)
+    # CSS wrapper optimized for clear, distinct bullet points
     styled_html = f"""
     <html>
     <head>
@@ -180,9 +177,10 @@ def generate_tailored_resume(job_description, job_role, company_name):
             body {{ font-family: 'Arial', sans-serif; font-size: 11px; line-height: 1.4; color: #111; margin: 40px; }}
             h1 {{ font-size: 20px; color: #000; text-transform: uppercase; margin-bottom: 5px; text-align: center; }}
             h2 {{ font-size: 14px; border-bottom: 1px solid #000; padding-bottom: 2px; margin-top: 18px; color: #000; text-transform: uppercase; page-break-after: avoid; }}
+            h3 {{ font-size: 12px; margin-top: 10px; margin-bottom: 2px; color: #333; }}
             p {{ margin-bottom: 6px; }}
-            ul {{ margin-top: 4px; padding-left: 20px; margin-bottom: 8px; }}
-            li {{ margin-bottom: 4px; text-align: justify; }}
+            ul {{ margin-top: 4px; padding-left: 20px; margin-bottom: 12px; }}
+            li {{ margin-bottom: 6px; text-align: justify; }}
             b {{ color: #000; }}
             .header-text {{ text-align: center; font-size: 11px; margin-bottom: 15px; }}
         </style>
@@ -190,14 +188,13 @@ def generate_tailored_resume(job_description, job_role, company_name):
     <body>
         <div class="header-text">
             <h1>Vamshi Krishna Boddu</h1>
-            Frisco, TX | vamshikrishna852@gmail.com | 989-954-2212 | [linkedin.com/in/vamshikrishnaboddu](https://linkedin.com/in/vamshikrishnaboddu)
+            Frisco, TX | vamshikrishna852@gmail.com | 989-954-2212 | [linkedin.com/in/vamshib112196/](www.linkedin.com/in/vamshib112196)
         </div>
         {html_content}
     </body>
     </html>
     """
     
-    # Set the exact file name
     pdf_filename = f"/tmp/Vamshi_krishna_boddu_{safe_comp}.pdf"
     
     options = {
@@ -210,7 +207,6 @@ def generate_tailored_resume(job_description, job_role, company_name):
         'quiet': ''
     }
     
-    # Generate the PDF
     pdfkit.from_string(styled_html, pdf_filename, options=options)
     print(f"-> 📄 Tailored PDF generated: {pdf_filename}")
     
