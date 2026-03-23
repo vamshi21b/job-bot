@@ -86,10 +86,14 @@ def log_application(url, job_role, company, description, status, resume_url="N/A
 def login_to_dice(page):
     if not DICE_USERNAME or not DICE_PASSWORD: return
     print("\n--- 🔐 Authenticating with Dice ---")
-    page.goto('[https://www.dice.com/dashboard/login](https://www.dice.com/dashboard/login)')
+    
+    # SAFELY wrapped inside the try block with a clean, hardcoded URL
     try:
+        login_url = "https://www.dice.com/dashboard/login"
+        page.goto(login_url, timeout=60000)
         page.wait_for_load_state('domcontentloaded')
         time.sleep(3)
+        
         page.locator('input[type="email"]:visible').first.fill(DICE_USERNAME)
         next_btn = page.locator('button:has-text("Continue"):visible, button:has-text("Next"):visible').first
         if next_btn.is_visible():
@@ -163,7 +167,7 @@ def solve_custom_questions(page, fname, lname, mail, ph):
                     else if (name.includes('name') || placeholder.includes('name') || name.includes('signature')) {{ fillValue = fname + " " + lname; }} 
                     else if (name.includes('email') || placeholder.includes('email') || type === 'email') {{ fillValue = mail; }} 
                     else if (name.includes('phone') || placeholder.includes('phone') || type === 'tel') {{ fillValue = ph; }} 
-                    else if (name.includes('link') || placeholder.includes('linkedin') || type === 'url') {{ fillValue = "[https://linkedin.com/in/vamshikrishnaboddu](https://linkedin.com/in/vamshikrishnaboddu)"; }} 
+                    else if (name.includes('link') || placeholder.includes('linkedin') || type === 'url') {{ fillValue = "https://linkedin.com/in/vamshikrishnaboddu"; }} 
                     else if (type === 'number' || name.includes('year') || placeholder.includes('year') || name.includes('exp')) {{ fillValue = "8"; }} 
                     else if (name.includes('salary') || placeholder.includes('salary') || name.includes('pay') || name.includes('rate') || name.includes('compensation')) {{ fillValue = "150000"; }}
                     else if (name.includes('location') || placeholder.includes('city') || name.includes('address') || name.includes('state')) {{ fillValue = "Dallas, TX"; }}
@@ -233,8 +237,8 @@ def apply_on_dice(page):
     applied_urls = get_previously_applied_jobs()
     
     search_urls = [
-        '[https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&location=Dallas,+TX&radius=30&radiusUnit=mi&filters.easyApply=true&filters.workplaceTypes=On-Site%7CHybrid](https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&location=Dallas,+TX&radius=30&radiusUnit=mi&filters.easyApply=true&filters.workplaceTypes=On-Site%7CHybrid)',
-        '[https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&filters.easyApply=true&filters.workplaceTypes=Remote](https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&filters.easyApply=true&filters.workplaceTypes=Remote)'
+        'https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&location=Dallas,+TX&radius=30&radiusUnit=mi&filters.easyApply=true&filters.workplaceTypes=On-Site%7CHybrid',
+        'https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&filters.easyApply=true&filters.workplaceTypes=Remote'
     ]
 
     for search_url in search_urls:
@@ -246,13 +250,13 @@ def apply_on_dice(page):
             job_links = page.locator('a.card-title-link').all()
             if not job_links: job_links = page.locator('a[href*="/job-detail/"]').all()
                 
-            job_urls = list(dict.fromkeys([link.get_attribute('href').split('?')[0] if not link.get_attribute('href').startswith('/') else f"[https://www.dice.com](https://www.dice.com){link.get_attribute('href').split('?')[0]}" for link in job_links if link.get_attribute('href')]))
+            job_urls = list(dict.fromkeys([link.get_attribute('href').split('?')[0] if not link.get_attribute('href').startswith('/') else f"https://www.dice.com{link.get_attribute('href').split('?')[0]}" for link in job_links if link.get_attribute('href')]))
             print(f"Found {len(job_urls)} UNIQUE jobs on this page.")
 
             for url in job_urls:
                 # DEDUPLICATION CHECK: Skip if already in database
                 if url in applied_urls:
-                    print(f"-> ⏭️ Already processed in a previous run (found in Azure DB). Skipping: {url}")
+                    print(f"-> ⏭️ Already processed in a previous run. Skipping: {url}")
                     continue
 
                 print(f"\nNavigating to job: {url}")
