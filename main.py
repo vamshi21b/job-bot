@@ -56,7 +56,7 @@ def upload_resume_to_blob(pdf_path):
         print(f"Failed to upload resume to blob: {e}")
         return "Upload Failed"
 
-def log_application(url, job_role, company, description, status, resume_url="N/A"):
+def log_application(url, job_role, company, location, description, status, resume_url="N/A"):
     if not table_client: return
     try:
         safe_desc = description[:30000] if description else "No desc"
@@ -64,12 +64,13 @@ def log_application(url, job_role, company, description, status, resume_url="N/A
             "PartitionKey": "Dice", "RowKey": str(uuid.uuid4()),
             "JobUrl": url, "JobRole": job_role[:100] if job_role else "Unknown", 
             "Company": company[:100] if company else "Unknown",
-            "Location": "Remote/Dallas", "Description": safe_desc,
+            "Location": location[:100] if location else "USA",
+            "Description": safe_desc,
             "Status": status, "DateLogged": time.strftime("%Y-%m-%d %H:%M:%S"),
             "ResumeUrl": resume_url
         }
         table_client.create_entity(entity=entity)
-        print(f"--> Logged to DB: [{status}] | {job_role} at {company}")
+        print(f"--> Logged to DB: [{status}] | {job_role} at {company} in {location}")
     except: pass
 
 def login_to_dice(page):
@@ -223,9 +224,14 @@ def apply_on_dice(page):
     print("--- Starting Dice Job Search ---")
     applied_urls = get_previously_applied_jobs()
     
+    # NEW SEARCH QUEUES: Prioritizing Remote, then Dallas, then Nationwide
     search_urls = [
+        # 1. High Priority: Remote anywhere in the US
+        'https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&countryCode=US&filters.easyApply=true&filters.workplaceTypes=Remote',
+        # 2. High Priority: Dallas area On-Site/Hybrid
         'https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&location=Dallas,+TX&radius=30&radiusUnit=mi&filters.easyApply=true&filters.workplaceTypes=On-Site%7CHybrid',
-        'https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&filters.easyApply=true&filters.workplaceTypes=Remote'
+        # 3. Massive Net: Anywhere in the US (All workplace types)
+        'https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&countryCode=US&filters.easyApply=true'
     ]
 
     for search_url in search_urls:
@@ -259,6 +265,10 @@ def apply_on_dice(page):
                         try: company = page.title().replace('| Dice.com', '').split(' - ')[1].strip()
                         except: company = "Unknown Company"
 
+                    # Dynamically scrape the job location
+                    try: job_location = page.locator('[data-cy="location"]').first.inner_text(timeout=3000)
+                    except: job_location = "USA"
+
                     try: description_text = page.locator('#jobdescSec, .job-description').first.inner_text(timeout=5000)
                     except: description_text = page.locator('body').inner_text()
                         
@@ -281,7 +291,7 @@ def apply_on_dice(page):
                             }''')
                             if is_applied:
                                 print("-> ⚠️ Already applied to this job! Skipping.")
-                                log_application(url, job_role, company, description_text, "Already Applied", resume_link)
+                                log_application(url, job_role, company, job_location, description_text, "Already Applied", resume_link)
                                 continue
 
                             print("-> Clicking Apply Button to open modal...")
@@ -323,16 +333,16 @@ def apply_on_dice(page):
                                         
                             if check_success(page):
                                 print("✅ Application verified and submitted successfully!")
-                                log_application(url, job_role, company, description_text, "Approved & Applied", resume_link)
+                                log_application(url, job_role, company, job_location, description_text, "Approved & Applied", resume_link)
                             else:
                                 print("❌ Success screen not detected. Form failed or required manual input.")
-                                log_application(url, job_role, company, description_text, "Approved but Failed", resume_link)
+                                log_application(url, job_role, company, job_location, description_text, "Approved but Failed", resume_link)
                             
                         except Exception as apply_err:
-                            log_application(url, job_role, company, description_text, "Approved but Failed", resume_link)
+                            log_application(url, job_role, company, job_location, description_text, "Approved but Failed", resume_link)
                     else:
                         print("OpenAI rejected this role. Skipping.")
-                        log_application(url, job_role, company, description_text, "Rejected by AI", "N/A")
+                        log_application(url, job_role, company, job_location, description_text, "Rejected by AI", "N/A")
                 except Exception as inner_e:
                     print(f"Skipping. Error: {inner_e}")
         except Exception as e:
