@@ -8,7 +8,6 @@ from azure.storage.blob import BlobServiceClient
 from brain import evaluate_job
 from resume_builder import generate_tailored_resume
 
-# --- 1. SECURE CREDENTIALS ---
 CANDIDATE_NAME = os.getenv("CANDIDATE_NAME", "Vamshi Krishna Boddu")
 CANDIDATE_EMAIL = os.getenv("CANDIDATE_EMAIL", "vamshikrishna852@gmail.com")
 CANDIDATE_PHONE = os.getenv("CANDIDATE_PHONE", "989-954-2212")
@@ -17,7 +16,6 @@ DICE_USERNAME = os.getenv("DICE_USERNAME")
 DICE_PASSWORD = os.getenv("DICE_PASSWORD") 
 RESUME_PATH = "/app/resume.pdf" 
 
-# --- 2. AZURE CONNECTIONS ---
 table_client = None
 blob_service_client = None
 
@@ -26,19 +24,14 @@ if STORAGE_CONN_STR:
         table_client = TableClient.from_connection_string(conn_str=STORAGE_CONN_STR, table_name="AppliedJobs")
         blob_service_client = BlobServiceClient.from_connection_string(STORAGE_CONN_STR)
         container_client = blob_service_client.get_container_client("resumes")
-        
         if not container_client.exists():
-            try:
-                container_client.create_container()
-            except Exception as ce:
-                print(f"Failed to create resumes container: {ce}")
-                
+            try: container_client.create_container()
+            except Exception as ce: print(f"Failed to create resumes container: {ce}")
         print("Successfully connected to Azure Table and Blob Storage.")
     except Exception as e:
         print(f"Warning: Could not connect to Azure Storage. Error: {e}")
 
 def get_previously_applied_jobs():
-    """Fetches all previously processed URLs from Azure DB to prevent duplicate runs."""
     applied_urls = set()
     if table_client:
         try:
@@ -47,13 +40,11 @@ def get_previously_applied_jobs():
                 url = entity.get("JobUrl")
                 if url: applied_urls.add(url.split('?')[0])
             print(f"-> Found {len(applied_urls)} previously processed jobs.")
-        except Exception as e:
-            print(f"Failed to fetch historical jobs: {e}")
+        except Exception as e: print(f"Failed to fetch historical jobs: {e}")
     return applied_urls
 
 def upload_resume_to_blob(pdf_path):
-    if not blob_service_client or not os.path.exists(pdf_path):
-        return "No Resume Uploaded"
+    if not blob_service_client or not os.path.exists(pdf_path): return "No Resume Uploaded"
     try:
         blob_name = os.path.basename(pdf_path) 
         blob_client = blob_service_client.get_blob_client(container="resumes", blob=blob_name)
@@ -69,11 +60,10 @@ def log_application(url, job_role, company, description, status, resume_url="N/A
     if not table_client: return
     try:
         safe_desc = description[:30000] if description else "No desc"
-        if not job_role: job_role = "Unknown Role"
-        if not company: company = "Unknown Company"
         entity = {
             "PartitionKey": "Dice", "RowKey": str(uuid.uuid4()),
-            "JobUrl": url, "JobRole": job_role[:100], "Company": company[:100],
+            "JobUrl": url, "JobRole": job_role[:100] if job_role else "Unknown", 
+            "Company": company[:100] if company else "Unknown",
             "Location": "Remote/Dallas", "Description": safe_desc,
             "Status": status, "DateLogged": time.strftime("%Y-%m-%d %H:%M:%S"),
             "ResumeUrl": resume_url
@@ -82,18 +72,13 @@ def log_application(url, job_role, company, description, status, resume_url="N/A
         print(f"--> Logged to DB: [{status}] | {job_role} at {company}")
     except: pass
 
-# --- 3. CORE AUTOMATION FUNCTIONS ---
 def login_to_dice(page):
     if not DICE_USERNAME or not DICE_PASSWORD: return
     print("\n--- 🔐 Authenticating with Dice ---")
-    
-    # SAFELY wrapped inside the try block with a clean, hardcoded URL
     try:
-        login_url = "https://www.dice.com/dashboard/login"
-        page.goto(login_url, timeout=60000)
+        page.goto("https://www.dice.com/dashboard/login", timeout=60000)
         page.wait_for_load_state('domcontentloaded')
         time.sleep(3)
-        
         page.locator('input[type="email"]:visible').first.fill(DICE_USERNAME)
         next_btn = page.locator('button:has-text("Continue"):visible, button:has-text("Next"):visible').first
         if next_btn.is_visible():
@@ -103,11 +88,9 @@ def login_to_dice(page):
         page.locator('button:has-text("Sign In"):visible, button[type="submit"]:visible').first.click()
         time.sleep(5)
         print("✅ Successfully logged in!")
-    except Exception as e:
-        print(f"❌ Failed to log in: {e}")
+    except Exception as e: print(f"❌ Failed to log in: {e}")
 
 def solve_custom_questions(page, fname, lname, mail, ph):
-    """Aggressively auto-fills required fields using React State Bypass"""
     for frame in page.frames:
         try:
             frame.evaluate(f'''([fname, lname, mail, ph]) => {{
@@ -119,21 +102,18 @@ def solve_custom_questions(page, fname, lname, mail, ph):
                         s.dispatchEvent(new Event('change', {{ bubbles: true }}));
                     }}
                 }});
-                
                 const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
                 const names = [...new Set(radios.map(r => r.name))];
                 names.forEach(name => {{
                     const group = document.querySelectorAll(`input[name="${{name}}"]`);
                     let isAnswered = false;
                     group.forEach(r => {{ if (r.checked) isAnswered = true; }});
-                    
                     if (!isAnswered && group.length > 0) {{
                         let clicked = false;
                         group.forEach(r => {{
                             const text = (r.nextElementSibling ? r.nextElementSibling.innerText : '').toLowerCase() + ' ' + (r.parentElement ? r.parentElement.innerText : '').toLowerCase();
                             const val = r.value.toLowerCase();
                             const parentText = (r.closest('div') || r.parentElement).innerText.toLowerCase();
-                            
                             if (text.includes('yes') || val === 'yes' || val === 'y') {{
                                 if (!parentText.includes('sponsorship') && !parentText.includes('require visa') && !parentText.includes('clearance')) {{
                                     r.dispatchEvent(new PointerEvent('click', {{ bubbles: true }})); r.checked = true; r.dispatchEvent(new Event('change', {{ bubbles: true }})); clicked = true;
@@ -147,21 +127,16 @@ def solve_custom_questions(page, fname, lname, mail, ph):
                         if (!clicked) {{ group[0].dispatchEvent(new PointerEvent('click', {{ bubbles: true }})); group[0].checked = true; group[0].dispatchEvent(new Event('change', {{ bubbles: true }})); }}
                     }}
                 }});
-                
                 document.querySelectorAll('input[type="checkbox"]').forEach(c => {{
                     if (!c.checked) {{ c.dispatchEvent(new PointerEvent('click', {{ bubbles: true }})); c.checked = true; c.dispatchEvent(new Event('change', {{ bubbles: true }})); }}
                 }});
-                
                 const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set : null;
                 const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set : null;
-
                 document.querySelectorAll('input, textarea').forEach(i => {{
                     if (i.value || i.readOnly || i.disabled || window.getComputedStyle(i).visibility === 'hidden') return;
                     if (i.type === 'radio' || i.type === 'checkbox' || i.type === 'submit' || i.type === 'file' || i.type === 'hidden' || i.type === 'button') return;
-                    
                     const name = (i.name || '').toLowerCase(); const placeholder = (i.placeholder || '').toLowerCase(); const type = (i.type || '').toLowerCase();
                     let fillValue = null;
-                    
                     if (name.includes('first') || placeholder.includes('first')) {{ fillValue = fname; }} 
                     else if (name.includes('last') || placeholder.includes('last')) {{ fillValue = lname; }} 
                     else if (name.includes('name') || placeholder.includes('name') || name.includes('signature')) {{ fillValue = fname + " " + lname; }} 
@@ -173,7 +148,6 @@ def solve_custom_questions(page, fname, lname, mail, ph):
                     else if (name.includes('location') || placeholder.includes('city') || name.includes('address') || name.includes('state')) {{ fillValue = "Dallas, TX"; }}
                     else if (name.includes('country') || placeholder.includes('country')) {{ fillValue = "United States"; }}
                     else if (type === 'text' || type === 'textarea') {{ fillValue = "Yes"; }} 
-                    
                     if (fillValue) {{
                         if (i.tagName === 'TEXTAREA' && nativeTextAreaValueSetter) {{ nativeTextAreaValueSetter.call(i, fillValue); }} 
                         else if (nativeInputValueSetter) {{ nativeInputValueSetter.call(i, fillValue); }} 
@@ -194,22 +168,15 @@ def universal_click(page, keywords, timeout=5):
                         let found = null;
                         const els = root.querySelectorAll('*');
                         for (let el of els) {
-                            if (el.shadowRoot) {
-                                let res = pierce(el.shadowRoot);
-                                if (res) found = res;
-                            }
+                            if (el.shadowRoot) { let res = pierce(el.shadowRoot); if (res) found = res; }
                             if (document.querySelector('seds-modal') && !el.closest('seds-modal') && !window.location.href.includes('iframe')) continue; 
-                            
                             if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button' || (el.tagName === 'INPUT' && (el.type === 'submit' || el.type === 'button'))) {
                                 if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled')) continue;
-                                
                                 const txt = (el.innerText || el.value || '').toLowerCase().trim();
                                 for (let k of keywords) {
                                     if (txt === k || (k !== 'submit' && txt.includes(k))) {
                                         const rect = el.getBoundingClientRect();
-                                        if (rect.width > 0 && rect.height > 0 && window.getComputedStyle(el).visibility !== 'hidden') {
-                                            found = el; break;
-                                        }
+                                        if (rect.width > 0 && rect.height > 0 && window.getComputedStyle(el).visibility !== 'hidden') { found = el; break; }
                                     }
                                 }
                             }
@@ -218,10 +185,7 @@ def universal_click(page, keywords, timeout=5):
                         return found;
                     }
                     const btn = pierce(document);
-                    if (btn) {
-                        btn.dispatchEvent(new PointerEvent('click', { view: window, bubbles: true, cancelable: true, buttons: 1 }));
-                        return true;
-                    }
+                    if (btn) { btn.dispatchEvent(new PointerEvent('click', { view: window, bubbles: true, cancelable: true, buttons: 1 })); return true; }
                     return false;
                 }''', [keywords])
                 if clicked: return True
@@ -229,11 +193,34 @@ def universal_click(page, keywords, timeout=5):
         time.sleep(1)
     return False
 
-# --- 4. MAIN PIPELINE ---
+def check_success(page):
+    time.sleep(5) 
+    for frame in page.frames:
+        try:
+            success = frame.evaluate('''() => {
+                const text = document.body.innerText.toLowerCase();
+                return text.includes('application was sent') || text.includes('application submitted') || 
+                       text.includes('successfully applied') || text.includes('received your application');
+            }''')
+            if success: return True
+        except: continue
+    try:
+        status = page.evaluate("() => { const wc = document.querySelector('apply-button-wc'); return wc ? wc.getAttribute('status') : null; }")
+        if status == 'applied': return True
+    except: pass
+    print("-> Reloading page to verify application status with Dice backend...")
+    try:
+        page.reload(wait_until='domcontentloaded', timeout=15000)
+        time.sleep(4)
+        status = page.evaluate("() => { const wc = document.querySelector('apply-button-wc'); return wc ? wc.getAttribute('status') : null; }")
+        if status == 'applied': return True
+        is_applied_text = page.evaluate("() => document.body.innerText.includes('Already Applied') || document.body.innerText.includes('Applied on')")
+        if is_applied_text: return True
+    except: pass
+    return False
+
 def apply_on_dice(page):
     print("--- Starting Dice Job Search ---")
-    
-    # Pre-fetch applied jobs to prevent duplicates
     applied_urls = get_previously_applied_jobs()
     
     search_urls = [
@@ -254,7 +241,6 @@ def apply_on_dice(page):
             print(f"Found {len(job_urls)} UNIQUE jobs on this page.")
 
             for url in job_urls:
-                # DEDUPLICATION CHECK: Skip if already in database
                 if url in applied_urls:
                     print(f"-> ⏭️ Already processed in a previous run. Skipping: {url}")
                     continue
@@ -320,13 +306,11 @@ def apply_on_dice(page):
                                 solve_custom_questions(page, fname, lname, CANDIDATE_EMAIL, CANDIDATE_PHONE)
                                 time.sleep(1)
                                 
-                                # --- DRY RUN OVERRIDE: Submit button is blocked ---
+                                # PRODUCTION MODE: Submit button is fully active
                                 if universal_click(page, ['submit application', 'submit', 'finish application', 'finish', 'send'], timeout=3):
-                                    print("-> 🛑 DRY RUN MODE: Found Submit button, but skipping actual click!")
-                                    log_application(url, job_role, company, description_text, "Resume Generated (Dry Run)", resume_link)
+                                    print("-> 🚀 Clicked Submit button!")
+                                    time.sleep(5)
                                     break
-                                # --------------------------------------------------
-
                                 elif universal_click(page, ['next', 'continue', 'skip'], timeout=3):
                                     print("-> Clicked Next/Continue button.")
                                     time.sleep(3)
@@ -337,6 +321,13 @@ def apply_on_dice(page):
                                     print("-> Stuck on form. Could not find Next or Submit button.")
                                     break
                                         
+                            if check_success(page):
+                                print("✅ Application verified and submitted successfully!")
+                                log_application(url, job_role, company, description_text, "Approved & Applied", resume_link)
+                            else:
+                                print("❌ Success screen not detected. Form failed or required manual input.")
+                                log_application(url, job_role, company, description_text, "Approved but Failed", resume_link)
+                            
                         except Exception as apply_err:
                             log_application(url, job_role, company, description_text, "Approved but Failed", resume_link)
                     else:

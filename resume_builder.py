@@ -133,25 +133,24 @@ Education details:
 """
 
 def generate_tailored_resume(job_description, job_role, company_name):
-    print(f"-> 🧠 AI is HTML-Formatting the comprehensive resume for {company_name}...")
+    print(f"-> 🧠 AI is injecting keywords and formatting resume for {company_name}...")
     
-    # Sanitize company name for file saving
     safe_comp = "".join(x for x in company_name if x.isalnum() or x in " -_").strip().replace(" ", "_")
     if not safe_comp: safe_comp = "Unknown_Company"
 
     prompt = f"""
-    You are a strict Data Formatter and HTML Converter. You are NOT an editor. Do NOT summarize. Do NOT condense.
+    You are a strict Data Formatter and HTML Converter. 
 
     Target Role: {job_role} at {company_name}
     
     CRITICAL INSTRUCTIONS:
-    1. COPY AND PASTE EVERYTHING: You must output the ENTIRE content of my Master Profile. Do not skip, shrink, or summarize any job experience (You MUST include Visam Technologies). Do not condense the Professional Summary.
-    2. STRICT LIST FORMATTING (NO PARAGRAPHS): For the Professional Experience section, EVERY SINGLE bullet point from the Master Profile MUST be wrapped in its own <li> tag within a <ul> block. Do NOT merge bullet points into <p> paragraphs. 
-    3. SKILLS PRESERVATION: Copy the Technical Skills section exactly as provided. Do not reformat it into a paragraph.
-    4. KEYWORD INJECTION: You are allowed to surgically ADD 2 or 3 new <li> bullet points to the most recent roles to match the Job Description. BOLD (<b>) keywords in the text that match the Job Description.
+    1. ZERO DELETION: You must output the ENTIRE content of my Master Profile exactly as written. Do not skip, shrink, or summarize any job experience.
+    2. STRICT LIST FORMATTING: For the Professional Experience section, EVERY bullet point MUST be wrapped in its own <li> tag within a <ul> block. Do NOT merge bullet points into paragraphs. 
+    3. KEYWORD & EXPERIENCE INJECTION: You MUST surgically ADD 3 to 4 new <li> bullet points to my most recent roles. These new bullet points must organically incorporate the missing skills, keywords, and experiences demanded by the Job Description to ensure I pass the ATS.
+    4. NO BOLDING: DO NOT bold any text or keywords. Keep all text plain and uniformly styled.
     
     OUTPUT FORMAT:
-    Output STRICTLY raw HTML. Use <h2> for company/role titles, <p> for dates/locations, and <ul><li> for EVERY SINGLE responsibilities bullet point. Do NOT output markdown or wrap in ```html blocks.
+    Output STRICTLY raw HTML. Use <h2> for titles, <p> for dates, and <ul><li> for EVERY responsibilities bullet point. Do NOT output markdown.
     
     MASTER PROFILE:
     {MASTER_PROFILE}
@@ -163,13 +162,11 @@ def generate_tailored_resume(job_description, job_role, company_name):
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.0 # ZERO creativity. Forces pure copy-paste HTML conversion.
+        temperature=0.0 
     )
     
-    html_content = response.choices[0].message.content
-    html_content = html_content.replace("```html", "").replace("```", "").strip()
+    html_content = response.choices[0].message.content.replace("```html", "").replace("```", "").strip()
     
-    # CSS wrapper optimized for clear, distinct bullet points
     styled_html = f"""
     <html>
     <head>
@@ -178,36 +175,26 @@ def generate_tailored_resume(job_description, job_role, company_name):
             h1 {{ font-size: 20px; color: #000; text-transform: uppercase; margin-bottom: 5px; text-align: center; }}
             h2 {{ font-size: 14px; border-bottom: 1px solid #000; padding-bottom: 2px; margin-top: 18px; color: #000; text-transform: uppercase; page-break-after: avoid; }}
             h3 {{ font-size: 12px; margin-top: 10px; margin-bottom: 2px; color: #333; }}
-            p {{ margin-bottom: 6px; }}
+            p {{ margin-bottom: 6px; font-weight: normal; }}
             ul {{ margin-top: 4px; padding-left: 20px; margin-bottom: 12px; }}
-            li {{ margin-bottom: 6px; text-align: justify; }}
-            b {{ color: #000; }}
+            li {{ margin-bottom: 6px; text-align: justify; font-weight: normal; }}
             .header-text {{ text-align: center; font-size: 11px; margin-bottom: 15px; }}
         </style>
     </head>
     <body>
         <div class="header-text">
             <h1>Vamshi Krishna Boddu</h1>
-            Frisco, TX | vamshikrishna852@gmail.com | 989-954-2212 | [linkedin.com/in/vamshib112196/](www.linkedin.com/in/vamshib112196)
+            Frisco, TX | vamshikrishna852@gmail.com | 989-954-2212 | linkedin.com/in/vamshib112196/
         </div>
         {html_content}
     </body>
     </html>
     """
     
-    pdf_filename = f"/tmp/Vamshi_krishna_boddu_{safe_comp}.pdf"
+    # Appended a short UUID so Azure Blob stores every resume uniquely even for the same company
+    pdf_filename = f"/tmp/Vamshi_krishna_boddu_{safe_comp}_{uuid.uuid4().hex[:4]}.pdf"
     
-    options = {
-        'page-size': 'Letter',
-        'margin-top': '0.5in',
-        'margin-right': '0.5in',
-        'margin-bottom': '0.5in',
-        'margin-left': '0.5in',
-        'encoding': "UTF-8",
-        'quiet': ''
-    }
-    
+    options = {'page-size': 'Letter', 'margin-top': '0.5in', 'margin-right': '0.5in', 'margin-bottom': '0.5in', 'margin-left': '0.5in', 'encoding': "UTF-8", 'quiet': ''}
     pdfkit.from_string(styled_html, pdf_filename, options=options)
-    print(f"-> 📄 Tailored PDF generated: {pdf_filename}")
     
     return pdf_filename

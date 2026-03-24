@@ -1,51 +1,43 @@
 import os
 from openai import OpenAI
 
-# Initialize the OpenAI client using your Azure Environment Variable
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Your core foundation. The AI compares the Job Description against this.
 CANDIDATE_SUMMARY = """
 Role: Technology Architect / DevOps Engineer / Cloud Infrastructure Engineer / SRE
-Experience: 8+ years
+Experience: 9+ years
 Key Skills: Microsoft Azure, AWS (Amazon Web Services), CI/CD pipelines, Infrastructure as Code (Terraform, Ansible), Containerization (Docker, Kubernetes), Cloud Migrations, System Architecture, Automation.
-Education: Degree in Aeronautical Engineering
+Education: Degree in Aeronautical Engineering, Master's in Information Systems
 """
 
 def evaluate_job(job_description):
-    """
-    Evaluates the job description against a 60-70% match threshold.
-    """
     prompt = f"""
-    You are an expert technical AI recruiter. Your job is to determine if a candidate should apply to a specific job opening.
+    You are an expert technical AI recruiter. Determine if the candidate should apply to this job.
 
     CANDIDATE BASE PROFILE:
     {CANDIDATE_SUMMARY}
 
-    EVALUATION CRITERIA (The "60% Rule"):
-    1. You must APPROVE the job if the candidate's base profile matches at least 60% to 70% of the core technical requirements.
-    2. Do not look for a perfect 100% match. The candidate has an AI engine that will dynamically rewrite their resume to highlight the missing 30% using ATS optimization and JD-specific keywords. Be lenient.
-    3. Acceptable roles include: DevOps Engineer, Site Reliability Engineer (SRE), Cloud Engineer, Cloud Architect, Technology Architect, Infrastructure Engineer, Platform Engineer, or Backend Automation.
-    4. ONLY REJECT roles if they are completely unrelated to the candidate's ecosystem (e.g., Pure Sales, HR, Pure Frontend React/UI Developer, pure Data Scientist, or Helpdesk Support).
+    EVALUATION CRITERIA:
+    1. APPROVE the job if the candidate's base profile matches at least 60% of the core technical requirements.
+    2. Do not look for a perfect match. The candidate has an AI engine that will dynamically rewrite their resume to inject the missing 40-50% of keywords and experience. Be highly lenient.
+    3. Acceptable roles include: DevOps, SRE, Cloud Engineer, Cloud Architect, Technology Architect, Infrastructure Engineer, or Platform Engineer.
+    4. ONLY REJECT roles if they are completely unrelated (e.g., Pure Sales, HR, pure Data Scientist, Helpdesk).
     
     JOB DESCRIPTION:
     {job_description[:4000]}
     
-    If the job is a >= 60% match and worth generating a tailored resume for, respond with exactly and only the word: True
-    If the job is completely irrelevant, respond with exactly and only the word: False
+    If the job is a >= 60% match, respond with exactly: True
+    If completely irrelevant, respond with exactly: False
     """
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o", # Using the flagship model for best reasoning
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1, # Keep it strictly logical
+            temperature=0.1,
             max_tokens=5
         )
-        
-        result = response.choices[0].message.content.strip().lower()
-        return 'true' in result
-        
+        return 'true' in response.choices[0].message.content.strip().lower()
     except Exception as e:
         print(f"Error evaluating job: {e}")
         return False
