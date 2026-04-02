@@ -7,11 +7,6 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # PASTE YOUR ENTIRE 4-PAGE MASTER RESUME HERE
 MASTER_PROFILE = """
-Vamshi krishna Boddu
-Location: Frisco, TX
-vamshikrishna852@gmail.com | +1 (989)954-2212
-Senior Software Engineer
-
 PROFILE SUMMARY:
 
 	Over 9 years of professional IT experience spanning DevOps, Site Reliability Engineering (SRE), SecOps, and System Administration, with a proven record of driving reliability and operational excellence for large-scale enterprise systems.
@@ -185,6 +180,7 @@ def generate_tailored_resume(job_description, job_role, company_name):
         <div class="header-text">
             <h1>Vamshi Krishna Boddu</h1>
             Frisco, TX | vamshikrishna852@gmail.com | 989-954-2212 | linkedin.com/in/vamshib112196/
+            Senior Software Engineer
         </div>
         {html_content}
     </body>
