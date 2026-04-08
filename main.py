@@ -95,14 +95,31 @@ def solve_custom_questions(page, fname, lname, mail, ph):
     for frame in page.frames:
         try:
             frame.evaluate(f'''([fname, lname, mail, ph]) => {{
+                // Handle Dropdowns (Including Citizenship)
                 document.querySelectorAll('select').forEach(s => {{
                     if (s.options.length > 1 && (!s.value || s.selectedIndex <= 0)) {{
                         const nativeSelectValueSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set : null;
-                        const val = s.options[1].value;
+                        
+                        let val = s.options[1].value; // Default to first available
+                        const parentText = (s.closest('div') || s.parentElement).innerText.toLowerCase();
+                        
+                        // Citizenship / Authorization overrides
+                        if (parentText.includes('citizen') || parentText.includes('authorization') || parentText.includes('status')) {{
+                            for (let i = 0; i < s.options.length; i++) {{
+                                let optText = s.options[i].text.toLowerCase();
+                                if (optText.includes('citizen') || optText.includes('authorized') || optText.includes('green card')) {{
+                                    val = s.options[i].value;
+                                    break;
+                                }}
+                            }}
+                        }}
+                        
                         if (nativeSelectValueSetter) {{ nativeSelectValueSetter.call(s, val); }} else {{ s.value = val; }}
                         s.dispatchEvent(new Event('change', {{ bubbles: true }}));
                     }}
                 }});
+                
+                // Handle Radio Buttons (Visa & Citizenship)
                 const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
                 const names = [...new Set(radios.map(r => r.name))];
                 names.forEach(name => {{
@@ -115,7 +132,13 @@ def solve_custom_questions(page, fname, lname, mail, ph):
                             const text = (r.nextElementSibling ? r.nextElementSibling.innerText : '').toLowerCase() + ' ' + (r.parentElement ? r.parentElement.innerText : '').toLowerCase();
                             const val = r.value.toLowerCase();
                             const parentText = (r.closest('div') || r.parentElement).innerText.toLowerCase();
-                            if (text.includes('yes') || val === 'yes' || val === 'y') {{
+                            
+                            // Citizenship checks
+                            if (text.includes('citizen') || text.includes('green card') || text.includes('authorized')) {{
+                                r.dispatchEvent(new PointerEvent('click', {{ bubbles: true }})); r.checked = true; r.dispatchEvent(new Event('change', {{ bubbles: true }})); clicked = true;
+                            }}
+                            // Standard Yes/No
+                            else if (text.includes('yes') || val === 'yes' || val === 'y') {{
                                 if (!parentText.includes('sponsorship') && !parentText.includes('require visa') && !parentText.includes('clearance')) {{
                                     r.dispatchEvent(new PointerEvent('click', {{ bubbles: true }})); r.checked = true; r.dispatchEvent(new Event('change', {{ bubbles: true }})); clicked = true;
                                 }}
@@ -128,9 +151,11 @@ def solve_custom_questions(page, fname, lname, mail, ph):
                         if (!clicked) {{ group[0].dispatchEvent(new PointerEvent('click', {{ bubbles: true }})); group[0].checked = true; group[0].dispatchEvent(new Event('change', {{ bubbles: true }})); }}
                     }}
                 }});
+                
                 document.querySelectorAll('input[type="checkbox"]').forEach(c => {{
                     if (!c.checked) {{ c.dispatchEvent(new PointerEvent('click', {{ bubbles: true }})); c.checked = true; c.dispatchEvent(new Event('change', {{ bubbles: true }})); }}
                 }});
+                
                 const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set : null;
                 const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value') ? Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set : null;
                 document.querySelectorAll('input, textarea').forEach(i => {{
@@ -224,13 +249,9 @@ def apply_on_dice(page):
     print("--- Starting Dice Job Search ---")
     applied_urls = get_previously_applied_jobs()
     
-    # NEW SEARCH QUEUES: Prioritizing Remote, then Dallas, then Nationwide
     search_urls = [
-        # 1. High Priority: Remote anywhere in the US
         'https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&countryCode=US&filters.easyApply=true&filters.workplaceTypes=Remote',
-        # 2. High Priority: Dallas area On-Site/Hybrid
         'https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&location=Dallas,+TX&radius=30&radiusUnit=mi&filters.easyApply=true&filters.workplaceTypes=On-Site%7CHybrid',
-        # 3. Massive Net: Anywhere in the US (All workplace types)
         'https://www.dice.com/jobs?q=Technology+Architect+OR+DevOps&countryCode=US&filters.easyApply=true'
     ]
 
@@ -265,7 +286,6 @@ def apply_on_dice(page):
                         try: company = page.title().replace('| Dice.com', '').split(' - ')[1].strip()
                         except: company = "Unknown Company"
 
-                    # Dynamically scrape the job location
                     try: job_location = page.locator('[data-cy="location"]').first.inner_text(timeout=3000)
                     except: job_location = "USA"
 
@@ -292,6 +312,7 @@ def apply_on_dice(page):
                             if is_applied:
                                 print("-> ⚠️ Already applied to this job! Skipping.")
                                 log_application(url, job_role, company, job_location, description_text, "Already Applied", resume_link)
+                                applied_urls.add(url) # ADD TO MEMORY INSTANTLY
                                 continue
 
                             print("-> Clicking Apply Button to open modal...")
@@ -316,7 +337,6 @@ def apply_on_dice(page):
                                 solve_custom_questions(page, fname, lname, CANDIDATE_EMAIL, CANDIDATE_PHONE)
                                 time.sleep(1)
                                 
-                                # PRODUCTION MODE: Submit button is fully active
                                 if universal_click(page, ['submit application', 'submit', 'finish application', 'finish', 'send'], timeout=3):
                                     print("-> 🚀 Clicked Submit button!")
                                     time.sleep(5)
@@ -338,11 +358,16 @@ def apply_on_dice(page):
                                 print("❌ Success screen not detected. Form failed or required manual input.")
                                 log_application(url, job_role, company, job_location, description_text, "Approved but Failed", resume_link)
                             
+                            # REAL-TIME MEMORY UPDATE: Add to set so it's skipped in subsequent queues
+                            applied_urls.add(url)
+                            
                         except Exception as apply_err:
                             log_application(url, job_role, company, job_location, description_text, "Approved but Failed", resume_link)
+                            applied_urls.add(url)
                     else:
                         print("OpenAI rejected this role. Skipping.")
                         log_application(url, job_role, company, job_location, description_text, "Rejected by AI", "N/A")
+                        applied_urls.add(url)
                 except Exception as inner_e:
                     print(f"Skipping. Error: {inner_e}")
         except Exception as e:
