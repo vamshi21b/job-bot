@@ -19,8 +19,10 @@ DICE_USERNAME = os.getenv("DICE_USERNAME")
 DICE_PASSWORD = os.getenv("DICE_PASSWORD") 
 MONSTER_USERNAME = os.getenv("MONSTER_USERNAME")
 MONSTER_PASSWORD = os.getenv("MONSTER_PASSWORD")
+LINKEDIN_USERNAME = os.getenv("LINKEDIN_USERNAME")
+LINKEDIN_PASSWORD = os.getenv("LINKEDIN_PASSWORD")
 
-# JSON Cookie strings from GitHub Secrets
+# JSON Cookie strings from GitHub Secrets for Passkey Sites
 INDEED_COOKIES = os.getenv("INDEED_COOKIES")
 ZIP_COOKIES = os.getenv("ZIP_COOKIES")
 
@@ -81,7 +83,7 @@ def log_application(url, job_role, company, location, description, status, resum
 
 # --- 3. UNIVERSAL FORM SOLVERS ---
 def solve_custom_questions(page, fname, lname, mail, ph):
-    """Universal React-Bypass. Works across all portals."""
+    """Universal React-Bypass. Works across all 5 portals."""
     for frame in page.frames:
         try:
             frame.evaluate(f'''([fname, lname, mail, ph]) => {{
@@ -201,7 +203,6 @@ def inject_cookies(context):
 def login_to_portals(page):
     print("\n--- 🔐 Authenticating with Job Portals ---")
     
-    # 1. Standard Password Logins (Dice & Monster)
     if DICE_USERNAME:
         try:
             page.goto("https://www.dice.com/dashboard/login", timeout=30000)
@@ -223,6 +224,20 @@ def login_to_portals(page):
             time.sleep(3)
             print("✅ Monster Login Successful")
         except: print("❌ Monster Login Failed")
+
+    if LINKEDIN_USERNAME:
+        try:
+            page.goto("https://www.linkedin.com/login", timeout=30000)
+            page.locator('input[id="username"]').fill(LINKEDIN_USERNAME)
+            page.locator('input[id="password"]').fill(LINKEDIN_PASSWORD)
+            page.locator('button[type="submit"]').click()
+            time.sleep(4)
+            # Security challenge detection
+            if page.locator('input[name="pin"]').is_visible() or "challenge" in page.url:
+                print("⚠️ LinkedIn triggered a 2FA/Security Challenge for the datacenter IP.")
+            else:
+                print("✅ LinkedIn Login Successful")
+        except Exception as e: print(f"❌ LinkedIn Login Failed: {e}")
 
 def gather_job_urls(page):
     master_queue = []
@@ -274,6 +289,39 @@ def gather_job_urls(page):
                     master_queue.append(("Indeed", full_url.split('&')[0]))
         except: pass
 
+    # 4. LINKEDIN QUEUE (Easy Apply Only)
+    linkedin_urls = [
+        'https://www.linkedin.com/jobs/search/?f_AL=true&keywords=DevOps%20Architect&location=United%20States&f_WT=2', 
+        'https://www.linkedin.com/jobs/search/?f_AL=true&keywords=DevOps%20Architect&location=Dallas%2C%20Texas' 
+    ]
+    for url in linkedin_urls:
+        try:
+            page.goto(url, timeout=30000)
+            time.sleep(4)
+            links = page.locator('a.job-card-container__link, a.base-card__full-link, a.job-card-list__title').all()
+            for link in links:
+                href = link.get_attribute('href')
+                if href: master_queue.append(("LinkedIn", href.split('?')[0]))
+        except: pass
+    
+    # 5. MONSTER QUEUE (Newly Added)
+    monster_urls = [
+        'https://www.monster.com/jobs/search?q=DevOps+Architect&where=Remote',
+        'https://www.monster.com/jobs/search?q=DevOps+Architect&where=Dallas,+TX'
+    ]
+    for url in monster_urls:
+        try:
+            page.goto(url, timeout=30000)
+            time.sleep(4)
+            # Monster uses specific data-testids and URL structures for their job cards
+            links = page.locator('a[href*="job-openings"], a[data-testid="jobTitle"]').all()
+            for link in links:
+                href = link.get_attribute('href')
+                if href: 
+                    full_url = href if href.startswith('http') else f"https://www.monster.com{href}"
+                    master_queue.append(("Monster", full_url.split('?')[0]))
+        except: pass
+
     # Remove duplicates from the scrape phase
     return list({v[1]:v for v in master_queue}.values())
 
@@ -290,11 +338,11 @@ def process_master_queue(page, master_queue, applied_urls):
             
             # Universal data extraction
             job_role = page.title().split('-')[0].split('|')[0].strip()
-            try: company = page.locator('.companyName, .employer-name, a[data-cy="companyNameLink"], .jobs-unified-top-card__company-name').first.inner_text(timeout=2000)
+            try: company = page.locator('.companyName, .employer-name, a[data-cy="companyNameLink"], .jobs-unified-top-card__company-name, .job-details-jobs-unified-top-card__company-name').first.inner_text(timeout=2000)
             except: company = "Unknown Company"
-            try: job_location = page.locator('.jobsearch-JobInfoHeader-subtitle, [data-cy="location"], .jobs-unified-top-card__bullet').first.inner_text(timeout=2000)
+            try: job_location = page.locator('.jobsearch-JobInfoHeader-subtitle, [data-cy="location"], .jobs-unified-top-card__bullet, .job-details-jobs-unified-top-card__primary-description-container').first.inner_text(timeout=2000)
             except: job_location = "USA"
-            try: description_text = page.locator('#jobdescSec, #jobDescriptionText, .jobs-description__content, .description').first.inner_text(timeout=2000)
+            try: description_text = page.locator('#jobdescSec, #jobDescriptionText, .jobs-description__content, .description, .show-more-less-html__markup').first.inner_text(timeout=2000)
             except: description_text = page.locator('body').inner_text()
 
             # AI Evaluation
@@ -364,18 +412,13 @@ def run_scraper():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--disable-dev-shm-usage", "--no-sandbox", "--disable-gpu"])
         
-        # We must create the context first so we can inject the cookies
         context = browser.new_context()
-        
-        # INJECT PASSKEY COOKIES BEFORE OPENING A PAGE
         inject_cookies(context)
         
         page = context.new_page()
         stealth_sync(page) 
         
         applied_urls = get_previously_applied_jobs()
-        
-        # LOGIN TO PASSWORD SITES
         login_to_portals(page)
         
         print("\n--- 🔍 SCRAPING PHASE: Building Master Queue ---")
