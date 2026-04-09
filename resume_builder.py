@@ -188,7 +188,7 @@ def generate_tailored_resume(job_description, job_role, company_name):
     """
     
     # Appended a short UUID so Azure Blob stores every resume uniquely even for the same company
-    pdf_filename = f"/tmp/Vamshi_krishna_boddu_{safe_comp}_{uuid.uuid4().hex[:4]}.pdf"
+    pdf_filename = "/tmp/Vamshi_Krishna_Boddu.pdf"
     
     options = {'page-size': 'Letter', 'margin-top': '0.5in', 'margin-right': '0.5in', 'margin-bottom': '0.5in', 'margin-left': '0.5in', 'encoding': "UTF-8", 'quiet': ''}
     pdfkit.from_string(styled_html, pdf_filename, options=options)
